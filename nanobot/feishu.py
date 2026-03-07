@@ -253,17 +253,26 @@ class FeishuBot:
     async def _fetch_bot_open_id(self) -> None:
         """从飞书 API 获取 bot 自身的 open_id，用于 @mention 精准匹配。"""
         try:
-            from lark_oapi.api.bot.v3 import GetBotInfoRequest
+            import requests as _requests
+            from lark_oapi.core.token.manager import TokenManager
+
+            def _get() -> str:
+                token = TokenManager.get_self_tenant_token(self._client._config)
+                resp = _requests.get(
+                    "https://open.feishu.cn/open-apis/bot/v3/info",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=10,
+                )
+                data = resp.json()
+                if data.get("code") == 0:
+                    return data.get("bot", {}).get("open_id", "")
+                logger.warning("获取 bot open_id 失败: code={} msg={}", data.get("code"), data.get("msg"))
+                return ""
+
             loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self._client.bot.v3.bot.get(GetBotInfoRequest.builder().build()),
-            )
-            if response.success() and response.data and response.data.bot:
-                self._bot_open_id = response.data.bot.open_id or ""
+            self._bot_open_id = await loop.run_in_executor(None, _get)
+            if self._bot_open_id:
                 logger.info("Bot open_id: {}", self._bot_open_id)
-            else:
-                logger.warning("获取 bot open_id 失败: code={} msg={}", response.code, response.msg)
         except Exception as e:
             logger.warning("获取 bot open_id 出错: {}", e)
 

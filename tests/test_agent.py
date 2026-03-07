@@ -23,6 +23,47 @@ def agent(ws: WorkspaceManager) -> NanobotAgent:
     return NanobotAgent(AgentConfig(), ws)
 
 
+# ---- _make_options 配置项 ----
+
+def test_make_options_uses_model(ws: WorkspaceManager) -> None:
+    cfg = AgentConfig(model="claude-opus-4-6")
+    opts = NanobotAgent(cfg, ws)._make_options()
+    assert opts.model == "claude-opus-4-6"
+
+
+def test_make_options_no_model_is_none(ws: WorkspaceManager) -> None:
+    opts = NanobotAgent(AgentConfig(), ws)._make_options()
+    assert opts.model is None
+
+
+def test_make_options_system_prompt_override(ws: WorkspaceManager) -> None:
+    cfg = AgentConfig(system_prompt="custom prompt", cwd="/tmp")
+    opts = NanobotAgent(cfg)._make_options()
+    assert opts.system_prompt == "custom prompt"
+    assert opts.cwd == "/tmp"
+
+
+def test_make_options_extra_system_prompt_appended(ws: WorkspaceManager) -> None:
+    opts = NanobotAgent(AgentConfig(), ws, extra_system_prompt="## Extra")._make_options()
+    assert "## Extra" in opts.system_prompt
+    assert "---" in opts.system_prompt  # separator present
+
+
+def test_make_options_workspace_optional() -> None:
+    """system_prompt 直接指定时，workspace 可以为 None。"""
+    cfg = AgentConfig(system_prompt="worker prompt", cwd="/tmp", max_turns=5)
+    opts = NanobotAgent(cfg)._make_options()
+    assert opts.system_prompt == "worker prompt"
+    assert opts.cwd == "/tmp"
+
+
+def test_make_options_cwd_fallback_to_dot() -> None:
+    """workspace=None 且 cwd 未设置时，cwd 回退到 '.'。"""
+    cfg = AgentConfig(system_prompt="x")
+    opts = NanobotAgent(cfg)._make_options()
+    assert opts.cwd == "."
+
+
 # ---- Slash commands (no SDK call needed) ----
 
 @pytest.mark.asyncio

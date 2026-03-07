@@ -20,6 +20,9 @@ class AgentConfig(BaseModel):
     heartbeat_interval: int = 1800  # 秒，默认 30 分钟
     heartbeat_enabled: bool = True
     heartbeat_notify_chat_id: str = ""  # 心跳结果通知目标，空则用最近活跃会话
+    model: str = ""          # 模型名，空=SDK 默认; 如 "claude-opus-4-6"
+    system_prompt: str = ""  # 直接指定 system prompt，非空时跳过 workspace 构建
+    cwd: str = ""            # 工作目录覆盖，非空时替代 workspace.path
 
 
 class FeishuConfig(BaseModel):

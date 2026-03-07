@@ -33,6 +33,7 @@ class NanobotAgent:
 
     Each chat_id gets an independent ClaudeSDKClient (persistent subprocess).
     System prompt is built from workspace: identity + MEMORY.md + skills + bootstrap files.
+    Pass system_prompt in AgentConfig to bypass workspace building (worker mode).
 
     Slash commands:
       /new  — disconnect client → new client picks up updated MEMORY.md
@@ -40,9 +41,15 @@ class NanobotAgent:
       /help — show available commands
     """
 
-    def __init__(self, config: AgentConfig, workspace: WorkspaceManager) -> None:
+    def __init__(
+        self,
+        config: AgentConfig,
+        workspace: WorkspaceManager | None = None,
+        extra_system_prompt: str = "",
+    ) -> None:
         self._config = config
         self._workspace = workspace
+        self._extra_system_prompt = extra_system_prompt
         self._sessions: dict[str, ClaudeSDKClient] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self.last_chat_id: str | None = None
@@ -53,12 +60,27 @@ class NanobotAgent:
         return self._locks[chat_id]
 
     def _make_options(self) -> ClaudeAgentOptions:
+        # system_prompt: config 直接指定 > workspace 构建
+        if self._config.system_prompt:
+            system_prompt = self._config.system_prompt
+        elif self._workspace:
+            system_prompt = self._workspace.build_system_prompt()
+        else:
+            system_prompt = ""
+        if self._extra_system_prompt:
+            system_prompt = f"{system_prompt}\n\n---\n\n{self._extra_system_prompt}".strip()
+
+        # cwd: config 直接指定 > workspace.path
+        cwd = self._config.cwd or (str(self._workspace.path) if self._workspace else ".")
+
         kwargs: dict = {
-            "system_prompt": self._workspace.build_system_prompt(),
-            "cwd": str(self._workspace.path),
+            "system_prompt": system_prompt,
+            "cwd": cwd,
             # 无人值守 bot：不弹权限确认框，否则 subprocess 会无声挂起
             "permission_mode": "bypassPermissions",
         }
+        if self._config.model:
+            kwargs["model"] = self._config.model
         if self._config.max_turns:
             kwargs["max_turns"] = self._config.max_turns
         if self._config.allowed_tools:
