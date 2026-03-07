@@ -63,19 +63,19 @@ def chat(
     message: Annotated[str | None, typer.Option("--message", "-m", help="单次消息")] = None,
     workspace: Annotated[str | None, typer.Option("--workspace", "-w", help="workspace 路径")] = None,
 ) -> None:
-    """与 Claude Agent SDK 直接对话（交互模式或单次查询）。"""
-    from nanobot.agent import NanobotAgent
+    """与 Claude Agent SDK 直接对话（交互模式或单次查询，支持多 Agent 调度）。"""
     from nanobot.config import AgentConfig
+    from nanobot.team import AgentTeam
     from nanobot.workspace import WorkspaceManager
 
     ws_path = Path(workspace) if workspace else Path.home() / ".nanobot" / "workspace"
     ws = WorkspaceManager(ws_path)
-    agent = NanobotAgent(AgentConfig(), ws, extra_system_prompt=_SUPERVISOR_DISPATCH_PROMPT)
+    team = AgentTeam(AgentConfig(), ws)
 
     async def run() -> None:
         if message:
             console.print(f"[bold]你:[/bold] {message}")
-            reply = await agent.ask("cli", message)
+            reply = await team.ask("cli", message)
             console.print(Markdown(reply))
         else:
             console.print(
@@ -94,7 +94,7 @@ def chat(
                         break
 
                     with console.status("[cyan]思考中...[/cyan]", spinner="dots"):
-                        reply = await agent.ask("cli", user_input)
+                        reply = await team.ask("cli", user_input)
 
                     console.print("[bold blue]nanobot>[/bold blue] ", end="")
                     console.print(Markdown(reply))
@@ -109,35 +109,6 @@ def chat(
     asyncio.run(run())
 
 
-_SUPERVISOR_DISPATCH_PROMPT = """\
-## Worker Agent Dispatch
-
-当任务适合并行处理时，可以通过 Bash 工具自主启动 worker agent：
-
-```bash
-# 生成唯一 task_id，避免输出文件冲突
-task_id=$(date +%s%N | cut -c1-12)
-
-# 并行启动多个 worker（& 后台运行，wait 等待全部完成）
-nanobot worker --cwd /path/to/frontend --output ~/.nanobot/tasks/$task_id/frontend.md "任务描述" &
-nanobot worker --cwd /path/to/backend  --output ~/.nanobot/tasks/$task_id/backend.md  "任务描述" &
-wait
-
-# 用 Read 工具读取各 worker 的结果文件，综合后汇报给用户
-```
-
-可选参数：
-- `--model claude-sonnet-4-6`：指定模型（默认继承）
-- `--max-turns 30`：最大轮数（默认 30）
-
-**冲突预防规则**：
-- 每次调度生成新 task_id，输出目录自动隔离
-- 同一 git 仓库内，Supervisor 应为各 worker 分配不重叠的文件/目录范围
-- 不同仓库（不同 --cwd）的 worker 天然隔离，可自由并行
-- Worker 之间不能直接通信，需要 Supervisor 居中传递信息
-"""
-
-
 @app.command()
 def worker(
     task: str,
@@ -146,7 +117,7 @@ def worker(
     model: Annotated[str, typer.Option("--model", "-m", help="使用的模型")] = "",
     max_turns: Annotated[int, typer.Option("--max-turns", help="最大轮数")] = 30,
 ) -> None:
-    """启动单次 worker agent 执行任务，结果写入文件（供 Supervisor 调用）。"""
+    """启动单次 worker agent 执行任务，结果写入文件（备用：供外部脚本调用）。"""
     from nanobot.agent import NanobotAgent
     from nanobot.config import AgentConfig
 
@@ -154,17 +125,16 @@ def worker(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cwd_resolved = str(Path(cwd).expanduser().resolve())
 
-    system_prompt = (
-        f"You are a focused AI coding assistant.\n"
-        f"Working directory: {cwd_resolved}\n"
-        f"Complete the assigned task thoroughly. When done, write a clear markdown "
-        f"summary of what you accomplished to: {out_path}"
-    )
     cfg = AgentConfig(
         model=model,
         max_turns=max_turns,
         cwd=cwd_resolved,
-        system_prompt=system_prompt,
+        system_prompt=(
+            f"You are a focused AI coding assistant.\n"
+            f"Working directory: {cwd_resolved}\n"
+            f"Complete the assigned task thoroughly. When done, write a clear markdown "
+            f"summary of what you accomplished to: {out_path}"
+        ),
     )
     agent = NanobotAgent(cfg)
 
@@ -183,33 +153,36 @@ def run(
         typer.Option("--config", "-c", help="配置文件路径（JSON）"),
     ] = _DEFAULT_CONFIG,
 ) -> None:
-    """启动飞书机器人（使用 Claude Agent SDK 处理消息）。"""
-    from nanobot.agent import NanobotAgent
+    """启动飞书机器人（Supervisor+Worker 多 Agent 模式）。"""
     from nanobot.config import load_config
     from nanobot.feishu import FeishuBot
     from nanobot.heartbeat import HeartbeatService
+    from nanobot.team import AgentTeam
     from nanobot.workspace import WorkspaceManager
 
     config = load_config(config_path)
 
     if not config.feishu.app_id or not config.feishu.app_secret:
         console.print("[red]错误: 飞书 App ID 和 App Secret 未配置[/red]")
-        console.print(f"请在 {config_path} 中配置，或设置环境变量 NANOBOT_FEISHU__APP_ID / NANOBOT_FEISHU__APP_SECRET")
+        console.print(
+            f"请在 {config_path} 中配置，或设置环境变量 "
+            "NANOBOT_FEISHU__APP_ID / NANOBOT_FEISHU__APP_SECRET"
+        )
         raise typer.Exit(1)
 
     workspace = WorkspaceManager(Path(config.agent.workspace))
-    agent = NanobotAgent(config.agent, workspace, extra_system_prompt=_SUPERVISOR_DISPATCH_PROMPT)
+    team = AgentTeam(config.agent, workspace)
 
     async def on_message(text: str, chat_id: str, sender_id: str, send_progress) -> str:
-        return await agent.ask(chat_id, text, on_progress=send_progress)
+        return await team.ask(chat_id, text, on_progress=send_progress)
 
     bot = FeishuBot(config.feishu, on_message)
 
     async def heartbeat_execute(prompt: str) -> str:
-        return await agent.ask("heartbeat", prompt)
+        return await team.ask("heartbeat", prompt)
 
     async def heartbeat_notify(content: str) -> None:
-        target = config.agent.heartbeat_notify_chat_id or agent.last_chat_id
+        target = config.agent.heartbeat_notify_chat_id or team.last_chat_id
         if target:
             await bot.send(target, content)
         else:
@@ -217,8 +190,9 @@ def run(
 
     console.print(
         Panel(
-            f"{__logo__} 启动飞书机器人 (Claude Agent SDK)\n"
+            f"{__logo__} 启动飞书机器人 (Supervisor+Worker)\n"
             f"App ID: [cyan]{config.feishu.app_id[:10]}...[/cyan]\n"
+            f"Model:  [cyan]{config.agent.model or 'default'}[/cyan]\n"
             f"Workspace: [cyan]{workspace.path}[/cyan]",
             border_style="cyan",
         )

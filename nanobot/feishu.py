@@ -859,11 +859,26 @@ class FeishuBot:
             # 先发送"处理中"占位卡片，后续就地更新（避免刷屏）
             thinking_msg_id = await self._send_thinking_card(reply_to)
 
+            # 多 worker 状态看板：{ worker_name: last_tool }
+            # 普通消息（无 [name] 前缀）直接显示为单行状态
+            _worker_status: dict[str, str] = {}
+            _WORKER_PREFIX_RE = re.compile(r"^\[([^\]]+)\]\s*(.*)")
+
             async def _send_progress(msg: str) -> None:
+                m = _WORKER_PREFIX_RE.match(msg)
+                if m:
+                    _worker_status[m.group(1)] = m.group(2)
+                    status_lines = "\n".join(
+                        f"`[{k}]` {v}" for k, v in _worker_status.items()
+                    )
+                    display = f"{status_lines}\n\n⏳ 处理中，请稍候..."
+                else:
+                    display = f"{msg}\n\n⏳ 处理中，请稍候..."
+
                 if thinking_msg_id:
                     card = {
                         "config": {"wide_screen_mode": True},
-                        "elements": [{"tag": "markdown", "content": f"{msg}\n\n⏳ 处理中，请稍候..."}],
+                        "elements": [{"tag": "markdown", "content": display}],
                     }
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
