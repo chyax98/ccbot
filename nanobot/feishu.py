@@ -610,7 +610,8 @@ class FeishuBot:
 
     # --- 发送消息 ---
 
-    def _send_message_sync(self, receive_id_type: str, receive_id: str, msg_type: str, content: str) -> bool:
+    def _send_message_sync(self, receive_id_type: str, receive_id: str, msg_type: str, content: str) -> str | None:
+        """发送消息，返回 message_id（失败返回 None）。"""
         from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
         try:
             request = CreateMessageRequest.builder() \
@@ -628,11 +629,32 @@ class FeishuBot:
                     "发送{}消息失败: code={}, msg={}, log_id={}",
                     msg_type, response.code, response.msg, response.get_log_id()
                 )
-                return False
-            logger.debug("已发送{}消息到 {}", msg_type, receive_id)
-            return True
+                return None
+            msg_id = response.data.message_id if (response.data and response.data.message_id) else None
+            logger.debug("已发送{}消息到 {} (id={})", msg_type, receive_id, msg_id)
+            return msg_id
         except Exception as e:
             logger.error("发送{}消息出错: {}", msg_type, e)
+            return None
+
+    def _patch_message_sync(self, message_id: str, content: str) -> bool:
+        """就地更新（PATCH）已发送的 interactive 消息内容。"""
+        from lark_oapi.api.im.v1 import PatchMessageRequest, PatchMessageRequestBody
+        try:
+            request = PatchMessageRequest.builder() \
+                .message_id(message_id) \
+                .request_body(
+                    PatchMessageRequestBody.builder()
+                    .content(content)
+                    .build()
+                ).build()
+            response = self._client.im.v1.message.patch(request)
+            if not response.success():
+                logger.warning("更新消息失败: code={}, msg={}", response.code, response.msg)
+                return False
+            return True
+        except Exception as e:
+            logger.warning("更新消息出错: {}", e)
             return False
 
     async def send(self, chat_id: str, content: str, media: list[str] | None = None) -> None:
@@ -680,6 +702,40 @@ class FeishuBot:
 
         except Exception as e:
             logger.error("发送消息出错: {}", e)
+
+    async def _send_thinking_card(self, reply_to: str) -> str | None:
+        """发送"处理中"占位卡片，返回 message_id 供后续 PATCH。"""
+        receive_id_type = "chat_id" if reply_to.startswith("oc_") else "open_id"
+        card = {
+            "config": {"wide_screen_mode": True},
+            "elements": [{"tag": "markdown", "content": "🤔 正在处理中，请稍候..."}],
+        }
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            self._send_message_sync,
+            receive_id_type, reply_to, "interactive", json.dumps(card, ensure_ascii=False),
+        )
+
+    async def _patch_reply(self, thinking_msg_id: str, reply_to: str, content: str) -> None:
+        """将 thinking 卡片就地替换为最终回复；若需多张卡片则额外发送后续卡片。"""
+        elements = self._build_card_elements(content) if content.strip() else []
+        chunks = self._split_elements_by_table_limit(elements) if elements else [[{"tag": "markdown", "content": "（无响应）"}]]
+        loop = asyncio.get_running_loop()
+        receive_id_type = "chat_id" if reply_to.startswith("oc_") else "open_id"
+        # PATCH 已有的 thinking 消息为第一张回复卡片
+        first_card = {"config": {"wide_screen_mode": True}, "elements": chunks[0]}
+        await loop.run_in_executor(
+            None, self._patch_message_sync,
+            thinking_msg_id, json.dumps(first_card, ensure_ascii=False),
+        )
+        # 若回复被分割为多张卡片，后续卡片作为新消息发出
+        for chunk in chunks[1:]:
+            card = {"config": {"wide_screen_mode": True}, "elements": chunk}
+            await loop.run_in_executor(
+                None, self._send_message_sync,
+                receive_id_type, reply_to, "interactive", json.dumps(card, ensure_ascii=False),
+            )
 
     # --- 接收消息 ---
 
@@ -780,6 +836,7 @@ class FeishuBot:
             content = "\n".join(content_parts) if content_parts else ""
 
             if not content and not media_paths:
+                logger.debug("跳过空消息: message_id={} chat_id={}", message_id, chat_id)
                 return
 
             # 将媒体路径附加到文本
@@ -790,15 +847,44 @@ class FeishuBot:
 
             logger.info("收到来自 {} 的消息: {}", sender_id, content[:60])
 
+            # 先发送"处理中"占位卡片，后续就地更新（避免刷屏）
+            thinking_msg_id = await self._send_thinking_card(reply_to)
+
             async def _send_progress(msg: str) -> None:
-                await self.send(reply_to, msg)
+                if thinking_msg_id:
+                    card = {
+                        "config": {"wide_screen_mode": True},
+                        "elements": [{"tag": "markdown", "content": f"{msg}\n\n⏳ 处理中，请稍候..."}],
+                    }
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None, self._patch_message_sync,
+                        thinking_msg_id, json.dumps(card, ensure_ascii=False),
+                    )
+                else:
+                    await self.send(reply_to, msg)
 
             try:
                 reply = await self._on_message_cb(content, reply_to, sender_id, _send_progress)
-                await self.send(reply_to, reply)
+                if thinking_msg_id:
+                    await self._patch_reply(thinking_msg_id, reply_to, reply)
+                else:
+                    await self.send(reply_to, reply)
             except Exception as e:
                 logger.error("处理消息回调出错: {}", e)
-                await self.send(reply_to, f"抱歉，处理消息时出现错误: {e}")
+                error_msg = f"抱歉，处理消息时出现错误: {e}"
+                if thinking_msg_id:
+                    loop = asyncio.get_running_loop()
+                    error_card = {
+                        "config": {"wide_screen_mode": True},
+                        "elements": [{"tag": "markdown", "content": error_msg}],
+                    }
+                    await loop.run_in_executor(
+                        None, self._patch_message_sync,
+                        thinking_msg_id, json.dumps(error_card, ensure_ascii=False),
+                    )
+                else:
+                    await self.send(reply_to, error_msg)
 
         except Exception as e:
             logger.error("处理飞书消息出错: {}", e)
