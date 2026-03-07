@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import os
 import re
@@ -15,8 +16,6 @@ from typing import Any
 from loguru import logger
 
 from ccbot.config import FeishuConfig
-
-import importlib.util
 
 FEISHU_AVAILABLE = importlib.util.find_spec("lark_oapi") is not None
 
@@ -70,7 +69,9 @@ def _extract_interactive_content(content: dict) -> list[str]:
         elif isinstance(title, str):
             parts.append(f"title: {title}")
 
-    for elements in content.get("elements", []) if isinstance(content.get("elements"), list) else []:
+    for elements in (
+        content.get("elements", []) if isinstance(content.get("elements"), list) else []
+    ):
         for element in elements:
             parts.extend(_extract_element_content(element))
 
@@ -231,8 +232,15 @@ class FeishuBot:
     _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
     _AUDIO_EXTS = {".opus"}
     _FILE_TYPE_MAP = {
-        ".opus": "opus", ".mp4": "mp4", ".pdf": "pdf", ".doc": "doc", ".docx": "doc",
-        ".xls": "xls", ".xlsx": "xls", ".ppt": "ppt", ".pptx": "ppt",
+        ".opus": "opus",
+        ".mp4": "mp4",
+        ".pdf": "pdf",
+        ".doc": "doc",
+        ".docx": "doc",
+        ".xls": "xls",
+        ".xlsx": "xls",
+        ".ppt": "ppt",
+        ".pptx": "ppt",
     }
 
     def __init__(
@@ -266,7 +274,9 @@ class FeishuBot:
                 data = resp.json()
                 if data.get("code") == 0:
                     return data.get("bot", {}).get("open_id", "")
-                logger.warning("获取 bot open_id 失败: code={} msg={}", data.get("code"), data.get("msg"))
+                logger.warning(
+                    "获取 bot open_id 失败: code={} msg={}", data.get("code"), data.get("msg")
+                )
                 return ""
 
             loop = asyncio.get_running_loop()
@@ -312,24 +322,29 @@ class FeishuBot:
             return
 
         import lark_oapi as lark
+
         self._running = True
         self._loop = asyncio.get_running_loop()
 
-        self._client = lark.Client.builder() \
-            .app_id(self.config.app_id) \
-            .app_secret(self.config.app_secret) \
-            .log_level(lark.LogLevel.INFO) \
+        self._client = (
+            lark.Client.builder()
+            .app_id(self.config.app_id)
+            .app_secret(self.config.app_secret)
+            .log_level(lark.LogLevel.INFO)
             .build()
+        )
 
         # 获取 bot 自身 open_id（用于 require_mention 时精准匹配 @bot）
         await self._fetch_bot_open_id()
 
-        event_handler = lark.EventDispatcherHandler.builder(
-            self.config.encrypt_key or "",
-            self.config.verification_token or "",
-        ).register_p2_im_message_receive_v1(
-            self._on_message_sync
-        ).build()
+        event_handler = (
+            lark.EventDispatcherHandler.builder(
+                self.config.encrypt_key or "",
+                self.config.verification_token or "",
+            )
+            .register_p2_im_message_receive_v1(self._on_message_sync)
+            .build()
+        )
 
         self._ws_client = lark.ws.Client(
             self.config.app_id,
@@ -340,7 +355,9 @@ class FeishuBot:
 
         def run_ws() -> None:
             import time
+
             import lark_oapi.ws.client as _lark_ws_client
+
             ws_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(ws_loop)
             _lark_ws_client.loop = ws_loop
@@ -375,15 +392,23 @@ class FeishuBot:
     # --- 表情反应 ---
 
     def _add_reaction_sync(self, message_id: str, emoji_type: str) -> None:
-        from lark_oapi.api.im.v1 import CreateMessageReactionRequest, CreateMessageReactionRequestBody, Emoji
+        from lark_oapi.api.im.v1 import (
+            CreateMessageReactionRequest,
+            CreateMessageReactionRequestBody,
+            Emoji,
+        )
+
         try:
-            request = CreateMessageReactionRequest.builder() \
-                .message_id(message_id) \
+            request = (
+                CreateMessageReactionRequest.builder()
+                .message_id(message_id)
                 .request_body(
                     CreateMessageReactionRequestBody.builder()
                     .reaction_type(Emoji.builder().emoji_type(emoji_type).build())
                     .build()
-                ).build()
+                )
+                .build()
+            )
             response = self._client.im.v1.message_reaction.create(request)
             if not response.success():
                 logger.warning("添加表情失败: code={}, msg={}", response.code, response.msg)
@@ -409,22 +434,28 @@ class FeishuBot:
 
         headers = split(lines[0])
         rows = [split(_line) for _line in lines[2:]]
-        columns = [{"tag": "column", "name": f"c{i}", "display_name": h, "width": "auto"}
-                   for i, h in enumerate(headers)]
+        columns = [
+            {"tag": "column", "name": f"c{i}", "display_name": h, "width": "auto"}
+            for i, h in enumerate(headers)
+        ]
         return {
             "tag": "table",
             "page_size": len(rows) + 1,
             "columns": columns,
-            "rows": [{f"c{i}": r[i] if i < len(r) else "" for i in range(len(headers))} for r in rows],
+            "rows": [
+                {f"c{i}": r[i] if i < len(r) else "" for i in range(len(headers))} for r in rows
+            ],
         }
 
     def _build_card_elements(self, content: str) -> list[dict]:
         elements, last_end = [], 0
         for m in self._TABLE_RE.finditer(content):
-            before = content[last_end:m.start()]
+            before = content[last_end : m.start()]
             if before.strip():
                 elements.extend(self._split_headings(before))
-            elements.append(self._parse_md_table(m.group(1)) or {"tag": "markdown", "content": m.group(1)})
+            elements.append(
+                self._parse_md_table(m.group(1)) or {"tag": "markdown", "content": m.group(1)}
+            )
             last_end = m.end()
         remaining = content[last_end:]
         if remaining.strip():
@@ -432,7 +463,9 @@ class FeishuBot:
         return elements or [{"tag": "markdown", "content": content}]
 
     @staticmethod
-    def _split_elements_by_table_limit(elements: list[dict], max_tables: int = 1) -> list[list[dict]]:
+    def _split_elements_by_table_limit(
+        elements: list[dict], max_tables: int = 1
+    ) -> list[list[dict]]:
         """每张卡片最多 max_tables 个表格（API 限制 11310）。"""
         if not elements:
             return [[]]
@@ -459,19 +492,21 @@ class FeishuBot:
         code_blocks = []
         for m in self._CODE_BLOCK_RE.finditer(content):
             code_blocks.append(m.group(1))
-            protected = protected.replace(m.group(1), f"\x00CODE{len(code_blocks)-1}\x00", 1)
+            protected = protected.replace(m.group(1), f"\x00CODE{len(code_blocks) - 1}\x00", 1)
 
         elements = []
         last_end = 0
         for m in self._HEADING_RE.finditer(protected):
-            before = protected[last_end:m.start()].strip()
+            before = protected[last_end : m.start()].strip()
             if before:
                 elements.append({"tag": "markdown", "content": before})
             text = m.group(2).strip()
-            elements.append({
-                "tag": "div",
-                "text": {"tag": "lark_md", "content": f"**{text}**"},
-            })
+            elements.append(
+                {
+                    "tag": "div",
+                    "text": {"tag": "lark_md", "content": f"**{text}**"},
+                }
+            )
             last_end = m.end()
         remaining = protected[last_end:].strip()
         if remaining:
@@ -488,18 +523,21 @@ class FeishuBot:
 
     def _upload_image_sync(self, file_path: str) -> str | None:
         from lark_oapi.api.im.v1 import CreateImageRequest, CreateImageRequestBody
+
         try:
             with open(file_path, "rb") as f:
-                request = CreateImageRequest.builder() \
+                request = (
+                    CreateImageRequest.builder()
                     .request_body(
-                        CreateImageRequestBody.builder()
-                        .image_type("message")
-                        .image(f)
-                        .build()
-                    ).build()
+                        CreateImageRequestBody.builder().image_type("message").image(f).build()
+                    )
+                    .build()
+                )
                 response = self._client.im.v1.image.create(request)
                 if response.success():
-                    logger.debug("上传图片 {}: {}", os.path.basename(file_path), response.data.image_key)
+                    logger.debug(
+                        "上传图片 {}: {}", os.path.basename(file_path), response.data.image_key
+                    )
                     return response.data.image_key
                 logger.error("上传图片失败: code={}, msg={}", response.code, response.msg)
                 return None
@@ -509,19 +547,23 @@ class FeishuBot:
 
     def _upload_file_sync(self, file_path: str) -> str | None:
         from lark_oapi.api.im.v1 import CreateFileRequest, CreateFileRequestBody
+
         ext = os.path.splitext(file_path)[1].lower()
         file_type = self._FILE_TYPE_MAP.get(ext, "stream")
         file_name = os.path.basename(file_path)
         try:
             with open(file_path, "rb") as f:
-                request = CreateFileRequest.builder() \
+                request = (
+                    CreateFileRequest.builder()
                     .request_body(
                         CreateFileRequestBody.builder()
                         .file_type(file_type)
                         .file_name(file_name)
                         .file(f)
                         .build()
-                    ).build()
+                    )
+                    .build()
+                )
                 response = self._client.im.v1.file.create(request)
                 if response.success():
                     logger.debug("上传文件 {}: {}", file_name, response.data.file_key)
@@ -532,14 +574,19 @@ class FeishuBot:
             logger.error("上传文件出错 {}: {}", file_path, e)
             return None
 
-    def _download_image_sync(self, message_id: str, image_key: str) -> tuple[bytes | None, str | None]:
+    def _download_image_sync(
+        self, message_id: str, image_key: str
+    ) -> tuple[bytes | None, str | None]:
         from lark_oapi.api.im.v1 import GetMessageResourceRequest
+
         try:
-            request = GetMessageResourceRequest.builder() \
-                .message_id(message_id) \
-                .file_key(image_key) \
-                .type("image") \
+            request = (
+                GetMessageResourceRequest.builder()
+                .message_id(message_id)
+                .file_key(image_key)
+                .type("image")
                 .build()
+            )
             response = self._client.im.v1.message_resource.get(request)
             if response.success():
                 file_data = response.file
@@ -556,6 +603,7 @@ class FeishuBot:
         self, message_id: str, file_key: str, resource_type: str = "file"
     ) -> tuple[bytes | None, str | None]:
         from lark_oapi.api.im.v1 import GetMessageResourceRequest
+
         if resource_type == "audio":
             resource_type = "file"
         try:
@@ -619,27 +667,38 @@ class FeishuBot:
 
     # --- 发送消息 ---
 
-    def _send_message_sync(self, receive_id_type: str, receive_id: str, msg_type: str, content: str) -> str | None:
+    def _send_message_sync(
+        self, receive_id_type: str, receive_id: str, msg_type: str, content: str
+    ) -> str | None:
         """发送消息，返回 message_id（失败返回 None）。"""
         from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+
         try:
-            request = CreateMessageRequest.builder() \
-                .receive_id_type(receive_id_type) \
+            request = (
+                CreateMessageRequest.builder()
+                .receive_id_type(receive_id_type)
                 .request_body(
                     CreateMessageRequestBody.builder()
                     .receive_id(receive_id)
                     .msg_type(msg_type)
                     .content(content)
                     .build()
-                ).build()
+                )
+                .build()
+            )
             response = self._client.im.v1.message.create(request)
             if not response.success():
                 logger.error(
                     "发送{}消息失败: code={}, msg={}, log_id={}",
-                    msg_type, response.code, response.msg, response.get_log_id()
+                    msg_type,
+                    response.code,
+                    response.msg,
+                    response.get_log_id(),
                 )
                 return None
-            msg_id = response.data.message_id if (response.data and response.data.message_id) else None
+            msg_id = (
+                response.data.message_id if (response.data and response.data.message_id) else None
+            )
             logger.debug("已发送{}消息到 {} (id={})", msg_type, receive_id, msg_id)
             return msg_id
         except Exception as e:
@@ -649,14 +708,14 @@ class FeishuBot:
     def _patch_message_sync(self, message_id: str, content: str) -> bool:
         """就地更新（PATCH）已发送的 interactive 消息内容。"""
         from lark_oapi.api.im.v1 import PatchMessageRequest, PatchMessageRequestBody
+
         try:
-            request = PatchMessageRequest.builder() \
-                .message_id(message_id) \
-                .request_body(
-                    PatchMessageRequestBody.builder()
-                    .content(content)
-                    .build()
-                ).build()
+            request = (
+                PatchMessageRequest.builder()
+                .message_id(message_id)
+                .request_body(PatchMessageRequestBody.builder().content(content).build())
+                .build()
+            )
             response = self._client.im.v1.message.patch(request)
             if not response.success():
                 logger.warning("更新消息失败: code={}, msg={}", response.code, response.msg)
@@ -676,7 +735,7 @@ class FeishuBot:
             receive_id_type = "chat_id" if chat_id.startswith("oc_") else "open_id"
             loop = asyncio.get_running_loop()
 
-            for file_path in (media or []):
+            for file_path in media or []:
                 if not os.path.isfile(file_path):
                     logger.warning("媒体文件不存在: {}", file_path)
                     continue
@@ -685,8 +744,11 @@ class FeishuBot:
                     key = await loop.run_in_executor(None, self._upload_image_sync, file_path)
                     if key:
                         await loop.run_in_executor(
-                            None, self._send_message_sync,
-                            receive_id_type, chat_id, "image",
+                            None,
+                            self._send_message_sync,
+                            receive_id_type,
+                            chat_id,
+                            "image",
                             json.dumps({"image_key": key}, ensure_ascii=False),
                         )
                 else:
@@ -694,8 +756,11 @@ class FeishuBot:
                     if key:
                         media_type = "audio" if ext in self._AUDIO_EXTS else "file"
                         await loop.run_in_executor(
-                            None, self._send_message_sync,
-                            receive_id_type, chat_id, media_type,
+                            None,
+                            self._send_message_sync,
+                            receive_id_type,
+                            chat_id,
+                            media_type,
                             json.dumps({"file_key": key}, ensure_ascii=False),
                         )
 
@@ -704,8 +769,11 @@ class FeishuBot:
                 for chunk in self._split_elements_by_table_limit(elements):
                     card = {"config": {"wide_screen_mode": True}, "elements": chunk}
                     await loop.run_in_executor(
-                        None, self._send_message_sync,
-                        receive_id_type, chat_id, "interactive",
+                        None,
+                        self._send_message_sync,
+                        receive_id_type,
+                        chat_id,
+                        "interactive",
                         json.dumps(card, ensure_ascii=False),
                     )
 
@@ -723,27 +791,40 @@ class FeishuBot:
         return await loop.run_in_executor(
             None,
             self._send_message_sync,
-            receive_id_type, reply_to, "interactive", json.dumps(card, ensure_ascii=False),
+            receive_id_type,
+            reply_to,
+            "interactive",
+            json.dumps(card, ensure_ascii=False),
         )
 
     async def _patch_reply(self, thinking_msg_id: str, reply_to: str, content: str) -> None:
         """将 thinking 卡片就地替换为最终回复；若需多张卡片则额外发送后续卡片。"""
         elements = self._build_card_elements(content) if content.strip() else []
-        chunks = self._split_elements_by_table_limit(elements) if elements else [[{"tag": "markdown", "content": "（无响应）"}]]
+        chunks = (
+            self._split_elements_by_table_limit(elements)
+            if elements
+            else [[{"tag": "markdown", "content": "（无响应）"}]]
+        )
         loop = asyncio.get_running_loop()
         receive_id_type = "chat_id" if reply_to.startswith("oc_") else "open_id"
         # PATCH 已有的 thinking 消息为第一张回复卡片
         first_card = {"config": {"wide_screen_mode": True}, "elements": chunks[0]}
         await loop.run_in_executor(
-            None, self._patch_message_sync,
-            thinking_msg_id, json.dumps(first_card, ensure_ascii=False),
+            None,
+            self._patch_message_sync,
+            thinking_msg_id,
+            json.dumps(first_card, ensure_ascii=False),
         )
         # 若回复被分割为多张卡片，后续卡片作为新消息发出
         for chunk in chunks[1:]:
             card = {"config": {"wide_screen_mode": True}, "elements": chunk}
             await loop.run_in_executor(
-                None, self._send_message_sync,
-                receive_id_type, reply_to, "interactive", json.dumps(card, ensure_ascii=False),
+                None,
+                self._send_message_sync,
+                receive_id_type,
+                reply_to,
+                "interactive",
+                json.dumps(card, ensure_ascii=False),
             )
 
     # --- 接收消息 ---
@@ -805,7 +886,7 @@ class FeishuBot:
             def _strip_mentions(text: str) -> str:
                 if chat_type != "group" or not self.config.require_mention:
                     return text
-                for m in (getattr(message, "mentions", None) or []):
+                for m in getattr(message, "mentions", None) or []:
                     key = getattr(m, "key", "")
                     if key:
                         text = text.replace(key, "")
@@ -829,12 +910,21 @@ class FeishuBot:
                     content_parts.append(content_text)
 
             elif msg_type in ("image", "audio", "file", "media"):
-                file_path, content_text = await self._download_and_save_media(msg_type, content_json, message_id)
+                file_path, content_text = await self._download_and_save_media(
+                    msg_type, content_json, message_id
+                )
                 if file_path:
                     media_paths.append(file_path)
                 content_parts.append(content_text)
 
-            elif msg_type in ("share_chat", "share_user", "interactive", "share_calendar_event", "system", "merge_forward"):
+            elif msg_type in (
+                "share_chat",
+                "share_user",
+                "interactive",
+                "share_calendar_event",
+                "system",
+                "merge_forward",
+            ):
                 text = _extract_share_card_content(content_json, msg_type)
                 if text:
                     content_parts.append(text)
@@ -883,9 +973,7 @@ class FeishuBot:
                 m = _WORKER_PREFIX_RE.match(msg)
                 if m:
                     _worker_status[m.group(1)] = m.group(2)
-                    status_lines = "\n".join(
-                        f"`[{k}]` {v}" for k, v in _worker_status.items()
-                    )
+                    status_lines = "\n".join(f"`[{k}]` {v}" for k, v in _worker_status.items())
                     display = f"{status_lines}\n\n⏳ 处理中，请稍候..."
                 else:
                     display = f"{msg}\n\n⏳ 处理中，请稍候..."
@@ -897,8 +985,10 @@ class FeishuBot:
                     }
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
-                        None, self._patch_message_sync,
-                        thinking_msg_id, json.dumps(card, ensure_ascii=False),
+                        None,
+                        self._patch_message_sync,
+                        thinking_msg_id,
+                        json.dumps(card, ensure_ascii=False),
                     )
                 else:
                     await self.send(reply_to, msg)
@@ -919,8 +1009,10 @@ class FeishuBot:
                         "elements": [{"tag": "markdown", "content": error_msg}],
                     }
                     await loop.run_in_executor(
-                        None, self._patch_message_sync,
-                        thinking_msg_id, json.dumps(error_card, ensure_ascii=False),
+                        None,
+                        self._patch_message_sync,
+                        thinking_msg_id,
+                        json.dumps(error_card, ensure_ascii=False),
                     )
                 else:
                     await self.send(reply_to, error_msg)

@@ -61,7 +61,9 @@ def version() -> None:
 @app.command()
 def chat(
     message: Annotated[str | None, typer.Option("--message", "-m", help="单次消息")] = None,
-    workspace: Annotated[str | None, typer.Option("--workspace", "-w", help="workspace 路径")] = None,
+    workspace: Annotated[
+        str | None, typer.Option("--workspace", "-w", help="workspace 路径")
+    ] = None,
 ) -> None:
     """与 Claude Agent SDK 直接对话（交互模式或单次查询，支持多 Agent 调度）。"""
     from ccbot.config import AgentConfig
@@ -186,7 +188,9 @@ def run(
         if target:
             await bot.send(target, content)
         else:
-            logger.warning("心跳通知无目标 chat_id，已跳过（可在配置中设置 heartbeat_notify_chat_id）")
+            logger.warning(
+                "心跳通知无目标 chat_id，已跳过（可在配置中设置 heartbeat_notify_chat_id）"
+            )
 
     console.print(
         Panel(
@@ -248,4 +252,5 @@ def serve(
     )
 
     import uvicorn
+
     uvicorn.run(server.app, host=config.a2a.host, port=config.a2a.port)

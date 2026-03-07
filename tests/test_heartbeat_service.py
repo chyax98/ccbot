@@ -6,8 +6,8 @@ import pytest
 
 from ccbot.heartbeat import HeartbeatService, _has_active_tasks
 
-
 # ---- _has_active_tasks ----
+
 
 def test_no_active_section_returns_false() -> None:
     assert not _has_active_tasks("# Notes\n\nsome text")
@@ -34,6 +34,7 @@ def test_case_insensitive_active_heading() -> None:
 
 
 # ---- HeartbeatService ----
+
 
 @pytest.mark.asyncio
 async def test_tick_skips_when_file_missing(tmp_path) -> None:

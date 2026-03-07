@@ -1,4 +1,4 @@
-# nanobot 🐈
+# ccbot 🐈
 
 超轻量级个人 AI 助手框架，基于 **Claude Agent SDK** + **飞书接入** + **A2A 协议**。
 
@@ -17,8 +17,7 @@
 ### 安装
 
 ```bash
-git clone https://github.com/yourusername/nanobot.git
-cd nanobot
+cd ccbot
 uv sync
 ```
 
@@ -26,15 +25,15 @@ uv sync
 
 ```bash
 # 交互模式
-uv run nanobot chat
+uv run ccbot chat
 
 # 单次查询
-uv run nanobot chat -m "你好"
+uv run ccbot chat -m "你好"
 ```
 
 ### 飞书机器人
 
-1. 创建配置文件 `~/.nanobot/config.json`：
+1. 创建配置文件 `~/.ccbot/config.json`：
 
 ```json
 {
@@ -44,7 +43,7 @@ uv run nanobot chat -m "你好"
   },
   "agent": {
     "model": "claude-sonnet-4-6",
-    "workspace": "~/.nanobot/workspace"
+    "workspace": "~/.ccbot/workspace"
   }
 }
 ```
@@ -52,7 +51,7 @@ uv run nanobot chat -m "你好"
 2. 启动机器人：
 
 ```bash
-uv run nanobot run
+uv run ccbot run
 ```
 
 ### A2A 服务器（Agent-to-Agent 通信）
@@ -61,7 +60,7 @@ uv run nanobot run
 
 ```bash
 # 配置 a2a.enabled = true
-uv run nanobot serve --config config.json
+uv run ccbot serve --config config.json
 ```
 
 详见 [A2A 协议文档](docs/A2A.md)。
@@ -113,7 +112,7 @@ Workers 并行执行，结果自动综合后返回。
 ## Workspace 结构
 
 ```
-~/.nanobot/workspace/
+~/.ccbot/workspace/
   memory/
     MEMORY.md       # 长期记忆（始终载入 system_prompt）
     HISTORY.md      # 历史日志（可 grep 查询）
@@ -130,12 +129,12 @@ Workers 并行执行，结果自动综合后返回。
 
 | 命令 | 说明 |
 |------|------|
-| `nanobot version` | 显示版本 |
-| `nanobot chat` | 交互式对话 |
-| `nanobot chat -m "消息"` | 单次查询 |
-| `nanobot run` | 启动飞书机器人 |
-| `nanobot serve` | 启动 A2A HTTP 服务器 |
-| `nanobot worker` | 单次 worker（供外部调用） |
+| `ccbot version` | 显示版本 |
+| `ccbot chat` | 交互式对话 |
+| `ccbot chat -m "消息"` | 单次查询 |
+| `ccbot run` | 启动飞书机器人 |
+| `ccbot serve` | 启动 A2A HTTP 服务器 |
+| `ccbot worker` | 单次 worker（供外部调用） |
 
 ## 配置
 
@@ -153,7 +152,7 @@ Workers 并行执行，结果自动综合后返回。
   "agent": {
     "model": "claude-sonnet-4-6",
     "max_turns": 10,
-    "workspace": "~/.nanobot/workspace",
+    "workspace": "~/.ccbot/workspace",
     "heartbeat_enabled": true,
     "heartbeat_interval": 1800,
     "mcp_servers": {}
@@ -162,7 +161,7 @@ Workers 并行执行，结果自动综合后返回。
     "enabled": false,
     "host": "0.0.0.0",
     "port": 8765,
-    "name": "nanobot",
+    "name": "ccbot",
     "description": "Claude Agent SDK powered assistant"
   }
 }
@@ -171,9 +170,9 @@ Workers 并行执行，结果自动综合后返回。
 环境变量优先级更高：
 
 ```bash
-export NANOBOT_FEISHU__APP_ID=cli_xxx
-export NANOBOT_FEISHU__APP_SECRET=xxx
-export NANOBOT_AGENT__MODEL=claude-opus-4-6
+export ccbot_FEISHU__APP_ID=cli_xxx
+export ccbot_FEISHU__APP_SECRET=xxx
+export ccbot_AGENT__MODEL=claude-opus-4-6
 ```
 
 ## 开发
@@ -187,7 +186,7 @@ uv run pytest
 
 # 代码检查
 uv run ruff check .
-uv run mypy nanobot
+uv run mypy ccbot
 ```
 
 ## 许可

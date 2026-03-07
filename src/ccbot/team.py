@@ -71,9 +71,7 @@ class AgentTeam:
 
     def __init__(self, config: AgentConfig, workspace: WorkspaceManager) -> None:
         self._config = config
-        self._supervisor = NanobotAgent(
-            config, workspace, extra_system_prompt=_SUPERVISOR_PROMPT
-        )
+        self._supervisor = NanobotAgent(config, workspace, extra_system_prompt=_SUPERVISOR_PROMPT)
 
     @property
     def last_chat_id(self) -> str | None:
@@ -90,9 +88,7 @@ class AgentTeam:
         if on_progress:
             await on_progress("📋 分析任务中...")
 
-        supervisor_reply = await self._supervisor.ask(
-            chat_id, prompt, on_progress=on_progress
-        )
+        supervisor_reply = await self._supervisor.ask(chat_id, prompt, on_progress=on_progress)
 
         # Step 2: 是否有 dispatch 计划
         match = self._DISPATCH_RE.search(supervisor_reply)
@@ -150,10 +146,14 @@ class AgentTeam:
                 if on_progress:
                     await on_progress(tagged)
 
-            logger.info("[{}] 启动 worker name={} cwd={} model={}", chat_id, name, cwd, model or "default")
+            logger.info(
+                "[{}] 启动 worker name={} cwd={} model={}", chat_id, name, cwd, model or "default"
+            )
 
             try:
-                result = await worker.ask(f"{chat_id}:{name}", task["task"], on_progress=worker_progress)
+                result = await worker.ask(
+                    f"{chat_id}:{name}", task["task"], on_progress=worker_progress
+                )
                 logger.info("[{}] worker 完成 name={} ({} chars)", chat_id, name, len(result))
 
                 # 发送 worker 完成的 milestone 消息
@@ -171,14 +171,10 @@ class AgentTeam:
 
                 raise
 
-        return list(
-            await asyncio.gather(*[run_one(t) for t in tasks], return_exceptions=True)
-        )
+        return list(await asyncio.gather(*[run_one(t) for t in tasks], return_exceptions=True))
 
     @staticmethod
-    def _build_synthesis_prompt(
-        tasks: list[dict], results: list[str | BaseException]
-    ) -> str:
+    def _build_synthesis_prompt(tasks: list[dict], results: list[str | BaseException]) -> str:
         lines = ["以下是各 worker 的执行结果，请综合后向用户汇报：\n"]
         for task, result in zip(tasks, results):
             name = task.get("name", "worker")

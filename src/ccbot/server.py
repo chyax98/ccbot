@@ -95,9 +95,7 @@ class A2AServer:
                     status_code=404,
                 )
 
-    async def _handle_message_send(
-        self, params: dict[str, Any], rpc_id: Any
-    ) -> JSONResponse:
+    async def _handle_message_send(self, params: dict[str, Any], rpc_id: Any) -> JSONResponse:
         """处理同步消息请求。"""
         context_id = params.get("contextId", "a2a-default")
         message = params.get("message", "")
@@ -149,7 +147,10 @@ class A2AServer:
                     "data": json.dumps(
                         {
                             "jsonrpc": "2.0",
-                            "error": {"code": -32602, "message": "Invalid params: message required"},
+                            "error": {
+                                "code": -32602,
+                                "message": "Invalid params: message required",
+                            },
                             "id": rpc_id,
                         }
                     ),
@@ -188,7 +189,9 @@ class A2AServer:
                 # 等待任务完成并获取结果
                 reply = await task
 
-                logger.info("A2A message/stream 完成: contextId={} reply_len={}", context_id, len(reply))
+                logger.info(
+                    "A2A message/stream 完成: contextId={} reply_len={}", context_id, len(reply)
+                )
 
                 # 发送最终结果
                 yield {

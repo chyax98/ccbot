@@ -14,6 +14,7 @@ _DEFAULT_CONFIG = Path.home() / ".nanobot" / "config.json"
 
 class AgentConfig(BaseModel):
     """Agent 配置。"""
+
     # 基础配置
     model: str = ""  # 模型名，空=SDK 默认; 如 "claude-opus-4-6"
     workspace: str = _DEFAULT_WORKSPACE
@@ -35,6 +36,7 @@ class AgentConfig(BaseModel):
 
 class A2AConfig(BaseModel):
     """A2A 协议服务器配置（Agent-to-Agent 通信）。"""
+
     enabled: bool = False
     host: str = "0.0.0.0"
     port: int = 8765
@@ -44,6 +46,7 @@ class A2AConfig(BaseModel):
 
 class FeishuConfig(BaseModel):
     """飞书机器人配置。"""
+
     # 认证配置
     app_id: str = ""
     app_secret: str = ""
@@ -58,7 +61,9 @@ class FeishuConfig(BaseModel):
 
     # 交互配置
     react_emoji: str = "THUMBSUP"
-    progress_mode: str = "milestone"  # 进度反馈: "edit"=编辑 / "milestone"=关键节点 / "verbose"=详细
+    progress_mode: str = (
+        "milestone"  # 进度反馈: "edit"=编辑 / "milestone"=关键节点 / "verbose"=详细
+    )
 
 
 class Config(BaseSettings):

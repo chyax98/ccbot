@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -33,6 +32,7 @@ def _mock_agent(reply: str) -> NanobotAgent:
 
 # ---- 无 dispatch：Supervisor 直接处理 ----
 
+
 @pytest.mark.asyncio
 async def test_no_dispatch_returns_supervisor_reply(team: AgentTeam) -> None:
     team._supervisor = _mock_agent("直接回答")
@@ -42,6 +42,7 @@ async def test_no_dispatch_returns_supervisor_reply(team: AgentTeam) -> None:
 
 
 # ---- dispatch 解析与并行执行 ----
+
 
 @pytest.mark.asyncio
 async def test_dispatch_runs_workers_and_synthesizes(team: AgentTeam, ws: WorkspaceManager) -> None:
@@ -129,6 +130,7 @@ async def test_dispatch_invalid_json_falls_back(team: AgentTeam) -> None:
 
 # ---- on_progress 回调 ----
 
+
 @pytest.mark.asyncio
 async def test_on_progress_tagged_with_worker_name(team: AgentTeam) -> None:
     dispatch_plan = '<dispatch>[{"name": "fe", "cwd": "/fe", "task": "t"}]</dispatch>'
@@ -160,6 +162,7 @@ async def test_on_progress_tagged_with_worker_name(team: AgentTeam) -> None:
 
 
 # ---- last_chat_id 委托 ----
+
 
 def test_last_chat_id_delegates_to_supervisor(team: AgentTeam) -> None:
     team._supervisor = _mock_agent("x")

@@ -160,7 +160,11 @@ class NanobotAgent:
                         duration = f"{msg.duration_ms / 1000:.1f}s"
                         logger.info(
                             "[{}] ✅ 完成 | {} 轮 | {} 工具 | {} | {}",
-                            chat_id, msg.num_turns, tool_count, cost, duration,
+                            chat_id,
+                            msg.num_turns,
+                            tool_count,
+                            cost,
+                            duration,
                         )
                         if msg.is_error:
                             logger.warning("[{}] stop_reason={}", chat_id, msg.stop_reason)
@@ -173,7 +177,9 @@ class NanobotAgent:
                                 # 工具调用参数（debug 级别，生产环境不刷屏）
                                 logger.debug(
                                     "[{}] ⚡ {} | {}",
-                                    chat_id, block.name, str(block.input)[:300],
+                                    chat_id,
+                                    block.name,
+                                    str(block.input)[:300],
                                 )
 
                     elif isinstance(msg, SystemMessage):

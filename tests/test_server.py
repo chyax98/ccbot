@@ -1,14 +1,10 @@
 """A2A 服务器单元测试。"""
 
-import json
-
 import pytest
 from fastapi.testclient import TestClient
 
-from ccbot.agent import NanobotAgent
 from ccbot.config import A2AConfig, AgentConfig
 from ccbot.server import A2AServer
-from ccbot.team import AgentTeam
 from ccbot.workspace import WorkspaceManager
 
 

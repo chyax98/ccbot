@@ -43,6 +43,50 @@ wheels = [
 ]
 
 [[package]]
+name = "ccbot"
+version = "0.2.0"
+source = { editable = "." }
+dependencies = [
+    { name = "claude-agent-sdk" },
+    { name = "fastapi" },
+    { name = "lark-oapi" },
+    { name = "loguru" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "rich" },
+    { name = "sse-starlette" },
+    { name = "typer" },
+    { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "claude-agent-sdk", specifier = ">=0.1.0" },
+    { name = "fastapi", specifier = ">=0.115.0,<1.0.0" },
+    { name = "lark-oapi", specifier = ">=1.5.0,<2.0.0" },
+    { name = "loguru", specifier = ">=0.7.3,<1.0.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
+    { name = "pydantic", specifier = ">=2.12.0,<3.0.0" },
+    { name = "pydantic-settings", specifier = ">=2.12.0,<3.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
+    { name = "rich", specifier = ">=14.0.0,<15.0.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "sse-starlette", specifier = ">=2.2.0,<3.0.0" },
+    { name = "typer", specifier = ">=0.20.0,<1.0.0" },
+    { name = "uvicorn", specifier = ">=0.32.0,<1.0.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "certifi"
 version = "2026.2.25"
 source = { registry = "https://pypi.org/simple" }
@@ -591,50 +635,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/a2/6e/371856a3fb9d31ca8
 wheels = [
     { url = "https://files.pythonhosted.org/packages/79/7b/2c79738432f5c924bef5071f933bcc9efd0473bac3b4aa584a6f7c1c8df8/mypy_extensions-1.1.0-py3-none-any.whl", hash = "sha256:1be4cccdb0f2482337c4743e60421de3a356cd97508abadd57d47403e94f5505", size = 4963, upload-time = "2025-04-22T14:54:22.983Z" },
 ]
-
-[[package]]
-name = "nanobot"
-version = "0.2.0"
-source = { editable = "." }
-dependencies = [
-    { name = "claude-agent-sdk" },
-    { name = "fastapi" },
-    { name = "lark-oapi" },
-    { name = "loguru" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "rich" },
-    { name = "sse-starlette" },
-    { name = "typer" },
-    { name = "uvicorn" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "claude-agent-sdk", specifier = ">=0.1.0" },
-    { name = "fastapi", specifier = ">=0.115.0,<1.0.0" },
-    { name = "lark-oapi", specifier = ">=1.5.0,<2.0.0" },
-    { name = "loguru", specifier = ">=0.7.3,<1.0.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
-    { name = "pydantic", specifier = ">=2.12.0,<3.0.0" },
-    { name = "pydantic-settings", specifier = ">=2.12.0,<3.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
-    { name = "rich", specifier = ">=14.0.0,<15.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
-    { name = "sse-starlette", specifier = ">=2.2.0,<3.0.0" },
-    { name = "typer", specifier = ">=0.20.0,<1.0.0" },
-    { name = "uvicorn", specifier = ">=0.32.0,<1.0.0" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "packaging"

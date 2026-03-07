@@ -25,6 +25,7 @@ def agent(ws: WorkspaceManager) -> NanobotAgent:
 
 # ---- _make_options 配置项 ----
 
+
 def test_make_options_uses_model(ws: WorkspaceManager) -> None:
     cfg = AgentConfig(model="claude-opus-4-6")
     opts = NanobotAgent(cfg, ws)._make_options()
@@ -65,6 +66,7 @@ def test_make_options_cwd_fallback_to_dot() -> None:
 
 
 # ---- Slash commands (no SDK call needed) ----
+
 
 @pytest.mark.asyncio
 async def test_help_command_returns_text(agent: NanobotAgent) -> None:
@@ -107,6 +109,7 @@ async def test_stop_command_no_active_session(agent: NanobotAgent) -> None:
 
 
 # ---- SDK interaction (mocked) ----
+
 
 def _make_mock_client(text_reply: str = "Hello!"):
     """Build a mock ClaudeSDKClient that yields one AssistantMessage with text."""
@@ -197,19 +200,27 @@ async def test_last_chat_id_updated(agent: NanobotAgent) -> None:
 @pytest.mark.asyncio
 async def test_on_progress_called_per_tool(agent: NanobotAgent) -> None:
     """每次 TaskProgressMessage 都触发 on_progress（per-tool 通知）。"""
-    from claude_agent_sdk import AssistantMessage, TextBlock, TaskProgressMessage, TaskUsage
+    from claude_agent_sdk import AssistantMessage, TaskProgressMessage, TaskUsage, TextBlock
 
     progress_calls: list[str] = []
 
     async def on_progress(msg: str) -> None:
         progress_calls.append(msg)
 
-    usage = TaskUsage(input_tokens=0, output_tokens=0, cache_read_input_tokens=0, cache_creation_input_tokens=0)
+    usage = TaskUsage(
+        input_tokens=0, output_tokens=0, cache_read_input_tokens=0, cache_creation_input_tokens=0
+    )
 
     def make_task(tool_name: str) -> TaskProgressMessage:
         return TaskProgressMessage(
-            subtype="progress", data={}, task_id="t1", description="running",
-            usage=usage, uuid="u1", session_id="s1", last_tool_name=tool_name,
+            subtype="progress",
+            data={},
+            task_id="t1",
+            description="running",
+            usage=usage,
+            uuid="u1",
+            session_id="s1",
+            last_tool_name=tool_name,
         )
 
     text_msg = AssistantMessage(content=[TextBlock(text="done")], model="claude-sonnet-4-6")
@@ -221,8 +232,8 @@ async def test_on_progress_called_per_tool(agent: NanobotAgent) -> None:
 
     async def _receive():
         yield make_task("Bash")
-        yield make_task("Read")    # different tool — also notified
-        yield make_task("Bash")    # same tool again — also notified
+        yield make_task("Read")  # different tool — also notified
+        yield make_task("Bash")  # same tool again — also notified
         yield text_msg
 
     client.receive_response = _receive
@@ -243,12 +254,14 @@ async def test_concurrent_requests_serialized_per_chat_id(agent: NanobotAgent) -
 
     async def slow_receive():
         from claude_agent_sdk import AssistantMessage, TextBlock
+
         await asyncio.sleep(0.05)
         order.append("first_done")
         yield AssistantMessage(content=[TextBlock(text="first")], model="m")
 
     async def fast_receive():
         from claude_agent_sdk import AssistantMessage, TextBlock
+
         order.append("second_done")
         yield AssistantMessage(content=[TextBlock(text="second")], model="m")
 

@@ -97,8 +97,7 @@ class WorkspaceManager:
             parts.append(
                 "# Skills\n\n"
                 "The following skills extend your capabilities. "
-                "To use a skill, read its SKILL.md file using the Read tool.\n\n"
-                + summary
+                "To use a skill, read its SKILL.md file using the Read tool.\n\n" + summary
             )
 
         return "\n\n---\n\n".join(parts)
@@ -135,18 +134,26 @@ class WorkspaceManager:
         if ws_skills.exists():
             for d in sorted(ws_skills.iterdir()):
                 if d.is_dir() and (d / "SKILL.md").exists():
-                    skills.append({"name": d.name, "path": str(d / "SKILL.md"), "source": "workspace"})
+                    skills.append(
+                        {"name": d.name, "path": str(d / "SKILL.md"), "source": "workspace"}
+                    )
 
         if _BUILTIN_SKILLS.exists():
             for d in sorted(_BUILTIN_SKILLS.iterdir()):
                 if d.is_dir() and (d / "SKILL.md").exists():
                     if not any(s["name"] == d.name for s in skills):
-                        skills.append({"name": d.name, "path": str(d / "SKILL.md"), "source": "builtin"})
+                        skills.append(
+                            {"name": d.name, "path": str(d / "SKILL.md"), "source": "builtin"}
+                        )
 
         return skills
 
     def _list_available_skills(self) -> list[dict]:
-        return [s for s in self._list_all_skills() if self._check_requirements(self._get_skill_meta(s["name"]))]
+        return [
+            s
+            for s in self._list_all_skills()
+            if self._check_requirements(self._get_skill_meta(s["name"]))
+        ]
 
     def _get_skill_content(self, name: str) -> str | None:
         for base in [self.path / "skills", _BUILTIN_SKILLS]:
@@ -186,6 +193,7 @@ class WorkspaceManager:
 
     def _check_requirements(self, skill_meta: dict) -> bool:
         import os
+
         for b in skill_meta.get("requires", {}).get("bins", []):
             if not shutil.which(b):
                 return False
@@ -207,7 +215,7 @@ class WorkspaceManager:
         if not content.startswith("---"):
             return content
         m = re.match(r"^---\n.*?\n---\n", content, re.DOTALL)
-        return content[m.end():].strip() if m else content
+        return content[m.end() :].strip() if m else content
 
     def _load_skills_for_context(self, names: list[str]) -> str:
         parts = []
