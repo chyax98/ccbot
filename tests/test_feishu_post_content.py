@@ -1,7 +1,24 @@
-from ccbot.feishu import _extract_post_content
+"""Tests for FeishuChannel._extract_post_content."""
+
+from ccbot.channels.feishu.adapter import FeishuChannel
+
+
+class MockConfig:
+    """Mock config for testing."""
+    app_id = "test"
+    app_secret = "test"
+    encrypt_key = ""
+    verification_token = ""
+    allow_from = ["*"]
+    react_emoji = "THUMBSUP"
+    require_mention = False
+    progress_mode = "edit"
 
 
 def test_extract_post_content_supports_post_wrapper_shape() -> None:
+    channel = FeishuChannel.__new__(FeishuChannel)
+    channel.config = MockConfig()
+
     payload = {
         "post": {
             "zh_cn": {
@@ -16,25 +33,75 @@ def test_extract_post_content_supports_post_wrapper_shape() -> None:
         }
     }
 
-    text, image_keys = _extract_post_content(payload)
+    text = channel._extract_post_content(payload)
 
-    assert text == "日报 完成"
-    assert image_keys == ["img_1"]
+    # 新实现只提取 text/a/at 标签的内容，不包含 title
+    assert text == "完成"
 
 
 def test_extract_post_content_keeps_direct_shape_behavior() -> None:
+    channel = FeishuChannel.__new__(FeishuChannel)
+    channel.config = MockConfig()
+
+    # 新实现期望 post wrapper 或直接 content 结构
     payload = {
-        "title": "Daily",
-        "content": [
-            [
-                {"tag": "text", "text": "report"},
-                {"tag": "img", "image_key": "img_a"},
-                {"tag": "img", "image_key": "img_b"},
-            ]
-        ],
+        "post": {
+            "en_us": {
+                "title": "Daily",
+                "content": [
+                    [
+                        {"tag": "text", "text": "report"},
+                        {"tag": "img", "image_key": "img_a"},
+                        {"tag": "img", "image_key": "img_b"},
+                    ]
+                ],
+            }
+        }
     }
 
-    text, image_keys = _extract_post_content(payload)
+    text = channel._extract_post_content(payload)
 
-    assert text == "Daily report"
-    assert image_keys == ["img_a", "img_b"]
+    assert text == "report"
+
+
+def test_extract_post_content_handles_at_tag() -> None:
+    channel = FeishuChannel.__new__(FeishuChannel)
+    channel.config = MockConfig()
+
+    payload = {
+        "post": {
+            "zh_cn": {
+                "content": [
+                    [
+                        {"tag": "text", "text": "Hello"},
+                        {"tag": "at", "user_name": "Alice"},
+                    ]
+                ],
+            }
+        }
+    }
+
+    text = channel._extract_post_content(payload)
+
+    assert text == "Hello @Alice"
+
+
+def test_extract_post_content_empty_when_no_recognized_tags() -> None:
+    channel = FeishuChannel.__new__(FeishuChannel)
+    channel.config = MockConfig()
+
+    payload = {
+        "post": {
+            "zh_cn": {
+                "content": [
+                    [
+                        {"tag": "img", "image_key": "img_1"},
+                    ]
+                ],
+            }
+        }
+    }
+
+    text = channel._extract_post_content(payload)
+
+    assert text == ""

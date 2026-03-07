@@ -156,8 +156,8 @@ def run(
     ] = _DEFAULT_CONFIG,
 ) -> None:
     """启动飞书机器人（Supervisor+Worker 多 Agent 模式）。"""
+    from ccbot.channels.feishu import FeishuChannel
     from ccbot.config import load_config
-    from ccbot.feishu import FeishuBot
     from ccbot.heartbeat import HeartbeatService
     from ccbot.team import AgentTeam
     from ccbot.workspace import WorkspaceManager
@@ -178,7 +178,8 @@ def run(
     async def on_message(text: str, chat_id: str, sender_id: str, send_progress) -> str:
         return await team.ask(chat_id, text, on_progress=send_progress)
 
-    bot = FeishuBot(config.feishu, on_message)
+    channel = FeishuChannel(config.feishu)
+    channel.on_message(on_message)
 
     async def heartbeat_execute(prompt: str) -> str:
         return await team.ask("heartbeat", prompt)
@@ -186,7 +187,7 @@ def run(
     async def heartbeat_notify(content: str) -> None:
         target = config.agent.heartbeat_notify_chat_id or team.last_chat_id
         if target:
-            await bot.send(target, content)
+            await channel.send(target, content)
         else:
             logger.warning(
                 "心跳通知无目标 chat_id，已跳过（可在配置中设置 heartbeat_notify_chat_id）"
@@ -211,7 +212,7 @@ def run(
                 interval_s=config.agent.heartbeat_interval,
             )
             await heartbeat.start()
-        await bot.start()
+        await channel.start()
 
     asyncio.run(main())
 
