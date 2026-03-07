@@ -164,13 +164,49 @@ class FeishuChannel(Channel):
         # 添加 WINK 表情表示已收到消息
         await self._add_reaction(message_id, "WINK")
 
-        # 进度回调：只打印日志，不发送消息给用户
+        # 进度回调：批量聚合工具调用，每2-3条发送一次
+        progress_buffer: list[str] = []
+        last_send_time = [time.time()]
+        total_tools = [0]  # 统计总工具调用数
+
         async def progress_cb(msg: str) -> None:
             logger.info("[{}] 进度: {}", chat_id, msg)
+
+            # 只收集工具调用消息（以 🔧 开头）
+            if msg.startswith("🔧"):
+                # 提取工具名，简化显示
+                tool_name = msg.replace("🔧 ", "").strip()
+                total_tools[0] += 1
+                progress_buffer.append(f"{total_tools[0]}. {tool_name}")
+
+                # 每3条发送一次，或者超过8秒有积压时也发送
+                now = time.time()
+                should_send = (
+                    len(progress_buffer) >= 3 or
+                    (progress_buffer and now - last_send_time[0] > 8)
+                )
+
+                if should_send:
+                    batch = "\n".join(progress_buffer)
+                    progress_buffer.clear()
+                    last_send_time[0] = now
+                    try:
+                        await self.send(reply_to, f"⏳ 执行中 ({total_tools[0]} 工具):\n{batch}")
+                    except Exception:
+                        pass  # 发送失败不影响主流程
 
         try:
             # 调用业务处理器
             reply = await self._handle_message(content, reply_to, sender_id, progress_cb)
+
+            # 发送剩余的进度消息
+            if progress_buffer:
+                batch = "\n".join(progress_buffer)
+                try:
+                    await self.send(reply_to, f"⏳ 执行中 ({total_tools[0]} 工具):\n{batch}")
+                except Exception:
+                    pass
+
             await self.send(reply_to, reply)
             return reply
         except Exception as e:

@@ -50,16 +50,18 @@ class NanobotAgent:
         config: AgentConfig,
         workspace: WorkspaceManager | None = None,
         extra_system_prompt: str = "",
-        idle_timeout: int = 1800,
+        idle_timeout: int | None = None,
     ) -> None:
         self._config = config
         self._workspace = workspace
         self._extra_system_prompt = extra_system_prompt
+        # 使用配置中的 idle_timeout，参数传入的优先级更高
+        self._idle_timeout = idle_timeout if idle_timeout is not None else config.idle_timeout
         self._pool = AgentPool(
             config=config,
             workspace=workspace,
             extra_system_prompt=extra_system_prompt,
-            idle_timeout=idle_timeout,
+            idle_timeout=self._idle_timeout,
         )
         self._locks: dict[str, asyncio.Lock] = {}
         self.last_chat_id: str | None = None

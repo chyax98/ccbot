@@ -33,6 +33,12 @@ class AgentConfig(BaseModel):
     system_prompt: str = ""  # 直接指定 system prompt，非空时跳过 workspace 构建
     cwd: str = ""  # 工作目录覆盖，非空时替代 workspace.path
 
+    # Session 配置
+    idle_timeout: int = 28800  # 空闲超时秒数，默认 8 小时（28800 = 8*3600）
+    # 说明：ClaudeSDKClient 的 session 保存在内存中，disconnect 后丢失
+    # 设置较长的 idle_timeout 可保持 session 活跃，避免 memory 丢失
+    # 0 表示永不自动关闭（不推荐，可能占用资源）
+
 
 class A2AConfig(BaseModel):
     """A2A 协议服务器配置（Agent-to-Agent 通信）。"""
