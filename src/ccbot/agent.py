@@ -1,4 +1,7 @@
-"""CcbotAgent: per-chat-id ClaudeSDKClient sessions with workspace integration."""
+"""CcbotAgent: per-chat-id ClaudeSDKClient sessions with workspace integration.
+
+使用 AgentPool 作为底层 client 管理器，消除重复的生命周期管理代码。
+"""
 
 from __future__ import annotations
 
@@ -7,8 +10,6 @@ from collections.abc import Awaitable, Callable
 
 from claude_agent_sdk import (
     AssistantMessage,
-    ClaudeAgentOptions,
-    ClaudeSDKClient,
     ResultMessage,
     SystemMessage,
     TaskProgressMessage,
@@ -18,6 +19,7 @@ from claude_agent_sdk import (
 from loguru import logger
 
 from ccbot.config import AgentConfig
+from ccbot.runtime import AgentPool
 from ccbot.workspace import WorkspaceManager
 
 _HELP_TEXT = """\
@@ -35,6 +37,8 @@ class NanobotAgent:
     System prompt is built from workspace: identity + MEMORY.md + skills + bootstrap files.
     Pass system_prompt in AgentConfig to bypass workspace building (worker mode).
 
+    底层使用 AgentPool 管理 client 生命周期，包括空闲自动释放。
+
     Slash commands:
       /new  — disconnect client → new client picks up updated MEMORY.md
       /stop — interrupt current query (non-blocking, does not wait for lock)
@@ -46,65 +50,37 @@ class NanobotAgent:
         config: AgentConfig,
         workspace: WorkspaceManager | None = None,
         extra_system_prompt: str = "",
+        idle_timeout: int = 1800,
     ) -> None:
         self._config = config
         self._workspace = workspace
         self._extra_system_prompt = extra_system_prompt
-        self._sessions: dict[str, ClaudeSDKClient] = {}
+        self._pool = AgentPool(
+            config=config,
+            workspace=workspace,
+            extra_system_prompt=extra_system_prompt,
+            idle_timeout=idle_timeout,
+        )
         self._locks: dict[str, asyncio.Lock] = {}
         self.last_chat_id: str | None = None
+
+    async def start(self) -> None:
+        """启动 agent，启动底层的 AgentPool。"""
+        await self._pool.start()
+
+    async def stop(self) -> None:
+        """停止 agent，关闭所有 client。"""
+        await self._pool.stop()
 
     def _get_lock(self, chat_id: str) -> asyncio.Lock:
         if chat_id not in self._locks:
             self._locks[chat_id] = asyncio.Lock()
         return self._locks[chat_id]
 
-    def _make_options(self) -> ClaudeAgentOptions:
-        # system_prompt: config 直接指定 > workspace 构建
-        if self._config.system_prompt:
-            system_prompt = self._config.system_prompt
-        elif self._workspace:
-            system_prompt = self._workspace.build_system_prompt()
-        else:
-            system_prompt = ""
-        if self._extra_system_prompt:
-            system_prompt = f"{system_prompt}\n\n---\n\n{self._extra_system_prompt}".strip()
-
-        # cwd: config 直接指定 > workspace.path
-        cwd = self._config.cwd or (str(self._workspace.path) if self._workspace else ".")
-
-        kwargs: dict = {
-            "system_prompt": system_prompt,
-            "cwd": cwd,
-            # 无人值守 bot：不弹权限确认框，否则 subprocess 会无声挂起
-            "permission_mode": "bypassPermissions",
-        }
-        if self._config.model:
-            kwargs["model"] = self._config.model
-        if self._config.max_turns:
-            kwargs["max_turns"] = self._config.max_turns
-        if self._config.allowed_tools:
-            kwargs["allowed_tools"] = self._config.allowed_tools
-        if self._config.mcp_servers:
-            kwargs["mcp_servers"] = self._config.mcp_servers
-        return ClaudeAgentOptions(**kwargs)
-
-    async def _get_client(self, chat_id: str) -> ClaudeSDKClient:
-        if chat_id not in self._sessions:
-            client = ClaudeSDKClient(self._make_options())
-            await client.connect()
-            self._sessions[chat_id] = client
-            logger.info("新会话: chat_id={}", chat_id)
-        return self._sessions[chat_id]
-
     async def _close_session(self, chat_id: str) -> None:
-        client = self._sessions.pop(chat_id, None)
+        """关闭指定 chat_id 的会话。"""
+        await self._pool.close(chat_id)
         self._locks.pop(chat_id, None)
-        if client:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
 
     async def ask(
         self,
@@ -128,7 +104,7 @@ class NanobotAgent:
 
         # /stop 不进锁，直接中断当前正在运行的 query
         if cmd == "/stop":
-            client = self._sessions.get(chat_id)
+            client = self._pool._clients.get(chat_id)  # type: ignore
             if client:
                 try:
                     await client.interrupt()
@@ -140,7 +116,7 @@ class NanobotAgent:
 
         async with self._get_lock(chat_id):
             try:
-                client = await self._get_client(chat_id)
+                client = await self._pool.acquire(chat_id)
                 await client.query(prompt)
                 parts: list[str] = []
                 tool_count = 0
@@ -187,6 +163,10 @@ class NanobotAgent:
 
                 reply = "\n".join(parts) or "（无响应）"
                 logger.info("[{}] → {} chars", chat_id, len(reply))
+
+                # 释放 client（更新最后使用时间）
+                await self._pool.release(chat_id)
+
                 return reply
 
             except Exception as e:

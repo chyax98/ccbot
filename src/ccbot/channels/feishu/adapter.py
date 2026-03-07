@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -160,31 +161,38 @@ class FeishuChannel(Channel):
 
         logger.info("处理消息: sender={} chat={} content={}", sender_id, chat_id, content[:60])
 
-        # 发送处理中表情
-        await self._add_reaction(message_id, self.config.react_emoji)
+        # 发送 Typing 状态（使用 chat_id，不是 reply_to）
+        await self._send_typing_indicator(chat_id)
 
-        # 发送"处理中"卡片
-        thinking_msg_id = await self._send_thinking_card(reply_to)
+        # 创建进度回调：打印日志 + 发送里程碑消息
+        last_tool_msg = {"time": 0, "msg": ""}
 
-        # 创建进度回调
         async def progress_cb(msg: str) -> None:
-            await self._update_progress(thinking_msg_id, reply_to, msg)
+            # 1. 总是打印日志
+            logger.info("[{}] 进度: {}", chat_id, msg)
+
+            # 2. 对于里程碑消息，也发送给用户
+            # 避免重复发送同一消息（3秒内）
+            now = time.time()
+            if msg != last_tool_msg["msg"] or now - last_tool_msg["time"] > 3:
+                last_tool_msg["time"] = now
+                last_tool_msg["msg"] = msg
+                # 只发送关键里程碑，避免刷屏
+                if any(msg.startswith(p) for p in ["📋", "✅", "🎯", "❌", "🔧"]):
+                    try:
+                        await self.send(reply_to, msg)
+                    except Exception:
+                        pass  # 发送失败不影响主流程
 
         try:
             # 调用业务处理器
             reply = await self._handle_message(content, reply_to, sender_id, progress_cb)
-            if thinking_msg_id:
-                await self._patch_reply(thinking_msg_id, reply_to, reply)
-            else:
-                await self.send(reply_to, reply)
+            await self.send(reply_to, reply)
             return reply
         except Exception as e:
             logger.exception("处理消息失败: {}", e)
             error_msg = f"处理失败: {e}"
-            if thinking_msg_id:
-                await self._patch_message(thinking_msg_id, error_msg)
-            else:
-                await self.send(reply_to, error_msg)
+            await self.send(reply_to, error_msg)
             return error_msg
 
     def _check_permissions(self, sender_id: str, chat_type: str) -> bool:
@@ -431,129 +439,29 @@ class FeishuChannel(Channel):
         except Exception as e:
             logger.warning("获取 bot open_id 失败: {}", e)
 
-    async def _add_reaction(self, message_id: str, emoji_type: str) -> None:
-        """添加表情反应。"""
-        if not self._client:
-            return
+    async def _send_typing_indicator(self, chat_id: str) -> None:
+        """发送"正在输入"状态（Typing Indicator）。
 
-        from lark_oapi.api.im.v1 import (
-            CreateMessageReactionRequest,
-            CreateMessageReactionRequestBody,
-            Emoji,
-        )
-
+        飞书 API: POST /open-apis/im/v1/chats/{chat_id}/typing
+        """
         try:
-            request = (
-                CreateMessageReactionRequest.builder()
-                .message_id(message_id)
-                .request_body(
-                    CreateMessageReactionRequestBody.builder()
-                    .reaction_type(Emoji.builder().emoji_type(emoji_type).build())
-                    .build()
+            import requests
+            from lark_oapi.core.token.manager import TokenManager
+
+            def _send() -> None:
+                token = TokenManager.get_self_tenant_token(self._client._config)
+                resp = requests.post(
+                    f"https://open.feishu.cn/open-apis/im/v1/chats/{chat_id}/typing",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"type": "text"},
+                    timeout=5,
                 )
-                .build()
-            )
+                if resp.status_code != 200:
+                    logger.debug("发送 typing 状态失败: {}", resp.text)
+
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._client.im.v1.message_reaction.create, request)
+            await loop.run_in_executor(None, _send)
         except Exception as e:
-            logger.warning("添加表情失败: {}", e)
+            # Typing 状态是可选功能，失败不影响主流程
+            logger.debug("发送 typing 状态出错: {}", e)
 
-    async def _send_thinking_card(self, reply_to: str) -> str | None:
-        """发送"处理中"卡片。"""
-        from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
-
-        receive_id_type = "chat_id" if reply_to.startswith("oc_") else "open_id"
-        card = {
-            "config": {"wide_screen_mode": True},
-            "elements": [{"tag": "markdown", "content": "🤔 正在处理中..."}],
-        }
-
-        try:
-            request = (
-                CreateMessageRequest.builder()
-                .receive_id_type(receive_id_type)
-                .request_body(
-                    CreateMessageRequestBody.builder()
-                    .receive_id(reply_to)
-                    .msg_type("interactive")
-                    .content(json.dumps(card, ensure_ascii=False))
-                    .build()
-                )
-                .build()
-            )
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(None, self._client.im.v1.message.create, request)
-            if response.success():
-                return response.data.message_id
-        except Exception as e:
-            logger.warning("发送 thinking 卡片失败: {}", e)
-        return None
-
-    async def _patch_message(self, message_id: str, content: str) -> None:
-        """更新消息内容。"""
-        from lark_oapi.api.im.v1 import PatchMessageRequest, PatchMessageRequestBody
-
-        try:
-            card = {
-                "config": {"wide_screen_mode": True},
-                "elements": [{"tag": "markdown", "content": content}],
-            }
-            request = (
-                PatchMessageRequest.builder()
-                .message_id(message_id)
-                .request_body(PatchMessageRequestBody.builder().content(json.dumps(card, ensure_ascii=False)).build())
-                .build()
-            )
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._client.im.v1.message.patch, request)
-        except Exception as e:
-            logger.warning("更新消息失败: {}", e)
-
-    async def _patch_reply(self, thinking_msg_id: str, reply_to: str, content: str) -> None:
-        """将 thinking 卡片替换为最终回复。"""
-        from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
-
-        await self._patch_message(thinking_msg_id, content)
-
-        # 如果内容很长，可能需要分条发送
-        if len(content) > 2000:
-            # 简化处理：分段发送剩余内容
-            chunks = [content[i:i + 2000] for i in range(2000, len(content), 2000)]
-            receive_id_type = "chat_id" if reply_to.startswith("oc_") else "open_id"
-
-            for chunk in chunks:
-                try:
-                    card = {
-                        "config": {"wide_screen_mode": True},
-                        "elements": [{"tag": "markdown", "content": chunk}],
-                    }
-                    request = (
-                        CreateMessageRequest.builder()
-                        .receive_id_type(receive_id_type)
-                        .request_body(
-                            CreateMessageRequestBody.builder()
-                            .receive_id(reply_to)
-                            .msg_type("interactive")
-                            .content(json.dumps(card, ensure_ascii=False))
-                            .build()
-                        )
-                        .build()
-                    )
-                    loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(None, self._client.im.v1.message.create, request)
-                except Exception as e:
-                    logger.warning("发送分段消息失败: {}", e)
-
-    async def _update_progress(self, thinking_msg_id: str | None, reply_to: str, msg: str) -> None:
-        """更新进度。"""
-        if self.config.progress_mode == "milestone":
-            # 里程碑模式：关键节点发送新消息
-            if any(msg.startswith(p) for p in ["📋", "✅", "🎯", "❌"]):
-                await self.send(reply_to, msg)
-        elif self.config.progress_mode == "verbose":
-            await self.send(reply_to, msg)
-        else:
-            # edit 模式：更新 thinking 卡片
-            if thinking_msg_id:
-                display = f"{msg}\n\n⏳ 处理中..."
-                await self._patch_message(thinking_msg_id, display)

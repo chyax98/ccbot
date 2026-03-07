@@ -75,38 +75,42 @@ def chat(
     team = AgentTeam(AgentConfig(), ws)
 
     async def run() -> None:
-        if message:
-            console.print(f"[bold]你:[/bold] {message}")
-            reply = await team.ask("cli", message)
-            console.print(Markdown(reply))
-        else:
-            console.print(
-                Panel(
-                    f"{__logo__} ccbot 交互模式\n输入 [bold]exit[/bold] 退出，[bold]/help[/bold] 查看命令",
-                    border_style="green",
+        await team.start()
+        try:
+            if message:
+                console.print(f"[bold]你:[/bold] {message}")
+                reply = await team.ask("cli", message)
+                console.print(Markdown(reply))
+            else:
+                console.print(
+                    Panel(
+                        f"{__logo__} ccbot 交互模式\n输入 [bold]exit[/bold] 退出，[bold]/help[/bold] 查看命令",
+                        border_style="green",
+                    )
                 )
-            )
-            while True:
-                try:
-                    user_input = console.input("[bold green]你> [/bold green]").strip()
-                    if not user_input:
-                        continue
-                    if user_input.lower() in ("exit", "quit", ":q"):
-                        console.print(f"{__logo__} 再见！")
+                while True:
+                    try:
+                        user_input = console.input("[bold green]你> [/bold green]").strip()
+                        if not user_input:
+                            continue
+                        if user_input.lower() in ("exit", "quit", ":q"):
+                            console.print(f"{__logo__} 再见！")
+                            break
+
+                        with console.status("[cyan]思考中...[/cyan]", spinner="dots"):
+                            reply = await team.ask("cli", user_input)
+
+                        console.print("[bold blue]ccbot>[/bold blue] ", end="")
+                        console.print(Markdown(reply))
+                        console.print()
+
+                    except KeyboardInterrupt:
+                        console.print(f"\n{__logo__} 再见！")
                         break
-
-                    with console.status("[cyan]思考中...[/cyan]", spinner="dots"):
-                        reply = await team.ask("cli", user_input)
-
-                    console.print("[bold blue]ccbot>[/bold blue] ", end="")
-                    console.print(Markdown(reply))
-                    console.print()
-
-                except KeyboardInterrupt:
-                    console.print(f"\n{__logo__} 再见！")
-                    break
-                except Exception as e:
-                    console.print(f"[red]错误: {e}[/red]")
+                    except Exception as e:
+                        console.print(f"[red]错误: {e}[/red]")
+        finally:
+            await team.stop()
 
     asyncio.run(run())
 
@@ -141,9 +145,13 @@ def worker(
     agent = NanobotAgent(cfg)
 
     async def run_worker() -> None:
-        result = await agent.ask("worker", task)
-        out_path.write_text(result, encoding="utf-8")
-        logger.info("worker 完成，结果写入: {}", out_path)
+        await agent.start()
+        try:
+            result = await agent.ask("worker", task)
+            out_path.write_text(result, encoding="utf-8")
+            logger.info("worker 完成，结果写入: {}", out_path)
+        finally:
+            await agent.stop()
 
     asyncio.run(run_worker())
 
@@ -204,15 +212,19 @@ def run(
     )
 
     async def main() -> None:
-        if config.agent.heartbeat_enabled:
-            heartbeat = HeartbeatService(
-                workspace.heartbeat_file,
-                heartbeat_execute,
-                heartbeat_notify,
-                interval_s=config.agent.heartbeat_interval,
-            )
-            await heartbeat.start()
-        await channel.start()
+        await team.start()
+        try:
+            if config.agent.heartbeat_enabled:
+                heartbeat = HeartbeatService(
+                    workspace.heartbeat_file,
+                    heartbeat_execute,
+                    heartbeat_notify,
+                    interval_s=config.agent.heartbeat_interval,
+                )
+                await heartbeat.start()
+            await channel.start()
+        finally:
+            await team.stop()
 
     asyncio.run(main())
 

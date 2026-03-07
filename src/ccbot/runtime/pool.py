@@ -44,6 +44,7 @@ class AgentPool:
         self,
         config: AgentConfig,
         workspace: WorkspaceManager | None = None,
+        extra_system_prompt: str = "",
         idle_timeout: int = 1800,
     ) -> None:
         """初始化 AgentPool。
@@ -51,10 +52,12 @@ class AgentPool:
         Args:
             config: Agent 配置
             workspace: 工作空间管理器
+            extra_system_prompt: 额外的 system prompt（如 Supervisor/Worker 提示）
             idle_timeout: 空闲超时秒数（默认 30 分钟）
         """
         self._config = config
         self._workspace = workspace
+        self._extra_system_prompt = extra_system_prompt
         self._idle_timeout = idle_timeout
 
         self._clients: dict[str, ClaudeSDKClient] = {}
@@ -160,6 +163,10 @@ class AgentPool:
             system_prompt = self._workspace.build_system_prompt()
         else:
             system_prompt = ""
+
+        # 添加额外的 system prompt
+        if self._extra_system_prompt:
+            system_prompt = f"{system_prompt}\n\n---\n\n{self._extra_system_prompt}".strip()
 
         cwd = self._config.cwd or (str(self._workspace.path) if self._workspace else ".")
 

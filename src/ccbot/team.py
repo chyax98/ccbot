@@ -73,6 +73,14 @@ class AgentTeam:
         self._config = config
         self._supervisor = NanobotAgent(config, workspace, extra_system_prompt=_SUPERVISOR_PROMPT)
 
+    async def start(self) -> None:
+        """启动 AgentTeam，启动 Supervisor 的 AgentPool。"""
+        await self._supervisor.start()
+
+    async def stop(self) -> None:
+        """停止 AgentTeam，关闭所有 client。"""
+        await self._supervisor.stop()
+
     @property
     def last_chat_id(self) -> str | None:
         return self._supervisor.last_chat_id
