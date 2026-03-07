@@ -5,19 +5,20 @@
   2. Python 解析计划，asyncio.gather 并行启动 NanobotAgent worker
   3. 每个 worker 的 on_progress 回调前缀 "[name] "，供上层聚合显示
   4. 全部完成后结果喂回 Supervisor 综合，返回最终回复
+
+Phase 2 Update: 使用结构化 DispatchPayload 替代文本解析
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
-import re
 from collections.abc import Awaitable, Callable
 
 from loguru import logger
 
 from ccbot.agent import NanobotAgent
 from ccbot.config import AgentConfig
+from ccbot.models import DispatchPayload, DispatchResult, WorkerResult
 from ccbot.workspace import WorkspaceManager
 
 # Supervisor 额外注入的多 Agent 调度说明
@@ -61,13 +62,12 @@ class AgentTeam:
     - 无 bash 开销：Python asyncio.gather 并行，Supervisor 全程感知
     - 实时进度：worker on_progress 前缀 "[name] "，由上层聚合为状态看板
     - 容错：单个 worker 失败不影响其他 worker，结果中标记 ❌
+    - 结构化 Dispatch：使用 Pydantic 模型替代文本解析
 
     用法（等同 NanobotAgent.ask）：
         team = AgentTeam(config, workspace)
         reply = await team.ask(chat_id, prompt, on_progress=cb)
     """
-
-    _DISPATCH_RE = re.compile(r"<dispatch>\s*([\s\S]*?)\s*</dispatch>", re.IGNORECASE)
 
     def __init__(self, config: AgentConfig, workspace: WorkspaceManager) -> None:
         self._config = config
@@ -90,30 +90,20 @@ class AgentTeam:
 
         supervisor_reply = await self._supervisor.ask(chat_id, prompt, on_progress=on_progress)
 
-        # Step 2: 是否有 dispatch 计划
-        match = self._DISPATCH_RE.search(supervisor_reply)
-        if not match:
+        # Step 2: 解析 dispatch 计划（使用结构化模型）
+        dispatch = DispatchPayload.from_text(supervisor_reply)
+        if dispatch is None:
             return supervisor_reply  # Supervisor 直接处理了，无需派发
 
-        try:
-            tasks: list[dict] = json.loads(match.group(1))
-        except json.JSONDecodeError as e:
-            logger.warning("dispatch JSON 解析失败: {} | raw: {}", e, match.group(1)[:300])
-            return supervisor_reply
-
-        if not isinstance(tasks, list) or not tasks:
-            return supervisor_reply
-
-        names = ", ".join(t.get("name", "?") for t in tasks)
-        logger.info("[{}] Supervisor 派发 {} 个 worker: {}", chat_id, len(tasks), names)
+        logger.info("[{}] Supervisor 派发 {} 个 worker: {}", chat_id, len(dispatch.tasks), dispatch.worker_names)
         if on_progress:
-            await on_progress(f"📋 派发任务: {names}")
+            await on_progress(f"📋 派发任务: {dispatch.worker_names}")
 
         # Step 3: 并行执行所有 worker
-        results = await self._run_workers(chat_id, tasks, on_progress)
+        result = await self._run_workers(chat_id, dispatch, on_progress)
 
         # Step 4: 喂回 Supervisor 综合
-        synthesis = self._build_synthesis_prompt(tasks, results)
+        synthesis = result.to_synthesis_prompt()
         logger.info("[{}] 所有 worker 完成，请求 Supervisor 综合", chat_id)
         if on_progress:
             await on_progress("🎯 综合结果中...")
@@ -123,63 +113,60 @@ class AgentTeam:
     async def _run_workers(
         self,
         chat_id: str,
-        tasks: list[dict],
+        dispatch: DispatchPayload,
         on_progress: Callable[[str], Awaitable[None]] | None,
-    ) -> list[str | BaseException]:
-        async def run_one(task: dict) -> str:
-            name = task.get("name", "worker")
-            cwd = task.get("cwd", ".")
-            model = task.get("model", "") or self._config.model or ""
-            max_turns = int(task.get("max_turns", 30))
+    ) -> DispatchResult:
+        """并行执行所有 worker 任务，返回结构化结果。"""
 
+        async def run_one(task_def) -> WorkerResult:
+            """执行单个 worker 任务。"""
             cfg = AgentConfig(
-                model=model,
-                cwd=str(cwd),
-                system_prompt=_WORKER_PROMPT.format(cwd=cwd),
-                max_turns=max_turns,
+                model=task_def.model or self._config.model or "",
+                cwd=str(task_def.cwd),
+                system_prompt=_WORKER_PROMPT.format(cwd=task_def.cwd),
+                max_turns=task_def.max_turns,
             )
             worker = NanobotAgent(cfg)
 
             async def worker_progress(msg: str) -> None:
-                tagged = f"[{name}] {msg}"
+                tagged = f"[{task_def.name}] {msg}"
                 logger.info("[{}] {}", chat_id, tagged)
                 if on_progress:
                     await on_progress(tagged)
 
             logger.info(
-                "[{}] 启动 worker name={} cwd={} model={}", chat_id, name, cwd, model or "default"
+                "[{}] 启动 worker name={} cwd={} model={}",
+                chat_id,
+                task_def.name,
+                task_def.cwd,
+                task_def.model or "default",
             )
 
             try:
-                result = await worker.ask(
-                    f"{chat_id}:{name}", task["task"], on_progress=worker_progress
+                result_text = await worker.ask(
+                    f"{chat_id}:{task_def.name}", task_def.task, on_progress=worker_progress
                 )
-                logger.info("[{}] worker 完成 name={} ({} chars)", chat_id, name, len(result))
+                logger.info("[{}] worker 完成 name={} ({} chars)", chat_id, task_def.name, len(result_text))
 
                 # 发送 worker 完成的 milestone 消息
                 if on_progress:
-                    await on_progress(f"✅ {name} 完成")
+                    await on_progress(f"✅ {task_def.name} 完成")
 
-                return result
+                return WorkerResult.from_result(task_def.name, result_text)
             except Exception as e:
-                logger.error("[{}] worker 失败 name={}: {}", chat_id, name, e)
+                logger.error("[{}] worker 失败 name={}: {}", chat_id, task_def.name, e)
 
                 # 发送 worker 失败的 milestone 消息
                 if on_progress:
                     error_msg = str(e)[:80]
-                    await on_progress(f"❌ {name} 失败: {error_msg}")
+                    await on_progress(f"❌ {task_def.name} 失败: {error_msg}")
 
-                raise
+                return WorkerResult.from_exception(task_def.name, e)
 
-        return list(await asyncio.gather(*[run_one(t) for t in tasks], return_exceptions=True))
+        # 并行执行所有 worker
+        worker_results = await asyncio.gather(
+            *[run_one(task) for task in dispatch.tasks],
+            return_exceptions=False,  # 我们在 run_one 内部捕获异常
+        )
 
-    @staticmethod
-    def _build_synthesis_prompt(tasks: list[dict], results: list[str | BaseException]) -> str:
-        lines = ["以下是各 worker 的执行结果，请综合后向用户汇报：\n"]
-        for task, result in zip(tasks, results):
-            name = task.get("name", "worker")
-            if isinstance(result, BaseException):
-                lines.append(f"### [{name}] ❌ 执行失败\n错误: {result}\n")
-            else:
-                lines.append(f"### [{name}]\n{result}\n")
-        return "\n".join(lines)
+        return DispatchResult(workers=worker_results)
