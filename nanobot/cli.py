@@ -70,7 +70,7 @@ def chat(
 
     ws_path = Path(workspace) if workspace else Path.home() / ".nanobot" / "workspace"
     ws = WorkspaceManager(ws_path)
-    agent = NanobotAgent(AgentConfig(workspace=str(ws_path)), ws)
+    agent = NanobotAgent(AgentConfig(), ws)
 
     async def run() -> None:
         if message:
@@ -113,33 +113,40 @@ def chat(
 def run(
     config_path: Annotated[
         Path,
-        typer.Option("--config", "-c", help="配置文件路径"),
+        typer.Option("--config", "-c", help="配置文件路径（JSON）"),
     ] = _DEFAULT_CONFIG,
 ) -> None:
     """启动飞书机器人（使用 Claude Agent SDK 处理消息）。"""
     from nanobot.agent import NanobotAgent
-    from nanobot.config import Config
+    from nanobot.config import load_config
     from nanobot.feishu import FeishuBot
     from nanobot.heartbeat import HeartbeatService
     from nanobot.workspace import WorkspaceManager
 
-    config = Config(_env_file=str(config_path) if config_path.exists() else None)
+    config = load_config(config_path)
 
     if not config.feishu.app_id or not config.feishu.app_secret:
         console.print("[red]错误: 飞书 App ID 和 App Secret 未配置[/red]")
-        console.print("请设置环境变量 NANOBOT_FEISHU__APP_ID 和 NANOBOT_FEISHU__APP_SECRET")
+        console.print(f"请在 {config_path} 中配置，或设置环境变量 NANOBOT_FEISHU__APP_ID / NANOBOT_FEISHU__APP_SECRET")
         raise typer.Exit(1)
 
     workspace = WorkspaceManager(Path(config.agent.workspace))
     agent = NanobotAgent(config.agent, workspace)
-    bot = FeishuBot(config.feishu, lambda text, chat_id, sender_id: agent.ask(chat_id, text))
+
+    async def on_message(text: str, chat_id: str, sender_id: str, send_progress) -> str:
+        return await agent.ask(chat_id, text, on_progress=send_progress)
+
+    bot = FeishuBot(config.feishu, on_message)
 
     async def heartbeat_execute(prompt: str) -> str:
         return await agent.ask("heartbeat", prompt)
 
     async def heartbeat_notify(content: str) -> None:
-        if agent.last_chat_id:
-            await bot.send(agent.last_chat_id, content)
+        target = config.agent.heartbeat_notify_chat_id or agent.last_chat_id
+        if target:
+            await bot.send(target, content)
+        else:
+            logger.warning("心跳通知无目标 chat_id，已跳过（可在配置中设置 heartbeat_notify_chat_id）")
 
     console.print(
         Panel(

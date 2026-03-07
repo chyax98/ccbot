@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, TextBlock
+import asyncio
+from collections.abc import Awaitable, Callable
+
+from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, TaskProgressMessage, TextBlock
 from loguru import logger
 
 from nanobot.config import AgentConfig
@@ -24,7 +27,7 @@ class NanobotAgent:
 
     Slash commands:
       /new  — disconnect client → new client picks up updated MEMORY.md
-      /stop — interrupt current query
+      /stop — interrupt current query (non-blocking, does not wait for lock)
       /help — show available commands
     """
 
@@ -32,12 +35,20 @@ class NanobotAgent:
         self._config = config
         self._workspace = workspace
         self._sessions: dict[str, ClaudeSDKClient] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
         self.last_chat_id: str | None = None
+
+    def _get_lock(self, chat_id: str) -> asyncio.Lock:
+        if chat_id not in self._locks:
+            self._locks[chat_id] = asyncio.Lock()
+        return self._locks[chat_id]
 
     def _make_options(self) -> ClaudeAgentOptions:
         kwargs: dict = {
             "system_prompt": self._workspace.build_system_prompt(),
             "cwd": str(self._workspace.path),
+            # 无人值守 bot：不弹权限确认框，否则 subprocess 会无声挂起
+            "permission_mode": "bypassPermissions",
         }
         if self._config.max_turns:
             kwargs["max_turns"] = self._config.max_turns
@@ -57,14 +68,23 @@ class NanobotAgent:
 
     async def _close_session(self, chat_id: str) -> None:
         client = self._sessions.pop(chat_id, None)
+        self._locks.pop(chat_id, None)
         if client:
             try:
                 await client.disconnect()
             except Exception:
                 pass
 
-    async def ask(self, chat_id: str, prompt: str) -> str:
-        """处理消息，返回回复文本。"""
+    async def ask(
+        self,
+        chat_id: str,
+        prompt: str,
+        on_progress: Callable[[str], Awaitable[None]] | None = None,
+    ) -> str:
+        """处理消息，返回回复文本。
+
+        on_progress: 可选回调，首次检测到工具调用时触发（工具名），用于发送进度提示。
+        """
         self.last_chat_id = chat_id
         cmd = prompt.strip().lower()
 
@@ -75,6 +95,7 @@ class NanobotAgent:
             await self._close_session(chat_id)
             return "New session started. 🐈"
 
+        # /stop 不进锁，直接中断当前正在运行的 query
         if cmd == "/stop":
             client = self._sessions.get(chat_id)
             if client:
@@ -85,17 +106,28 @@ class NanobotAgent:
             return "⏹ Stopped."
 
         logger.info("处理来自 {}: {}", chat_id, prompt[:80])
-        try:
-            client = await self._get_client(chat_id)
-            await client.query(prompt)
-            parts: list[str] = []
-            async for msg in client.receive_response():
-                if isinstance(msg, AssistantMessage):
-                    for block in msg.content:
-                        if isinstance(block, TextBlock):
-                            parts.append(block.text)
-            return "\n".join(parts) or "（无响应）"
-        except Exception as e:
-            logger.error("Agent 出错 chat_id={}: {}", chat_id, e)
-            await self._close_session(chat_id)
-            return f"抱歉，处理消息时出现错误: {e}"
+
+        async with self._get_lock(chat_id):
+            try:
+                client = await self._get_client(chat_id)
+                await client.query(prompt)
+                parts: list[str] = []
+                progress_sent = False
+
+                async for msg in client.receive_response():
+                    if isinstance(msg, TaskProgressMessage):
+                        # 首次工具调用时通知一次（避免刷屏）
+                        if on_progress and not progress_sent:
+                            tool = msg.last_tool_name or "tool"
+                            await on_progress(f"🔧 {tool}…")
+                            progress_sent = True
+                    elif isinstance(msg, AssistantMessage):
+                        for block in msg.content:
+                            if isinstance(block, TextBlock):
+                                parts.append(block.text)
+
+                return "\n".join(parts) or "（无响应）"
+            except Exception as e:
+                logger.error("Agent 出错 chat_id={}: {}", chat_id, e)
+                await self._close_session(chat_id)
+                return f"抱歉，处理消息时出现错误: {e}"

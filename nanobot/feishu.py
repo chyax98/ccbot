@@ -238,7 +238,7 @@ class FeishuBot:
     def __init__(
         self,
         config: FeishuConfig,
-        on_message: Callable[[str, str, str], Awaitable[str]],
+        on_message: Callable[[str, str, str, Callable[[str], Awaitable[None]]], Awaitable[str]],
     ) -> None:
         self.config = config
         self._on_message_cb = on_message
@@ -728,8 +728,11 @@ class FeishuBot:
 
             logger.info("收到来自 {} 的消息: {}", sender_id, content[:60])
 
+            async def _send_progress(msg: str) -> None:
+                await self.send(reply_to, msg)
+
             try:
-                reply = await self._on_message_cb(content, reply_to, sender_id)
+                reply = await self._on_message_cb(content, reply_to, sender_id, _send_progress)
                 await self.send(reply_to, reply)
             except Exception as e:
                 logger.error("处理消息回调出错: {}", e)

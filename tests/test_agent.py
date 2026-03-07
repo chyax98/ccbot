@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -150,3 +151,101 @@ async def test_last_chat_id_updated(agent: NanobotAgent) -> None:
         await agent.ask("room42", "ping")
 
     assert agent.last_chat_id == "room42"
+
+
+@pytest.mark.asyncio
+async def test_on_progress_called_on_tool_use(agent: NanobotAgent) -> None:
+    """首次 TaskProgressMessage 触发 on_progress 回调。"""
+    from claude_agent_sdk import AssistantMessage, TextBlock, TaskProgressMessage, TaskUsage
+
+    progress_calls: list[str] = []
+
+    async def on_progress(msg: str) -> None:
+        progress_calls.append(msg)
+
+    usage = TaskUsage(input_tokens=0, output_tokens=0, cache_read_input_tokens=0, cache_creation_input_tokens=0)
+    task_msg = TaskProgressMessage(
+        subtype="progress",
+        data={},
+        task_id="t1",
+        description="running",
+        usage=usage,
+        uuid="u1",
+        session_id="s1",
+        last_tool_name="Bash",
+    )
+    text_msg = AssistantMessage(
+        content=[TextBlock(text="done")],
+        model="claude-sonnet-4-6",
+    )
+
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.query = AsyncMock()
+    client.disconnect = AsyncMock()
+
+    async def _receive():
+        yield task_msg
+        yield task_msg  # second TaskProgressMessage should NOT trigger again
+        yield text_msg
+
+    client.receive_response = _receive
+
+    with patch("nanobot.agent.ClaudeSDKClient", return_value=client):
+        reply = await agent.ask("chat1", "run something", on_progress=on_progress)
+
+    assert reply == "done"
+    assert len(progress_calls) == 1  # only first tool call notified
+    assert "Bash" in progress_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_requests_serialized_per_chat_id(agent: NanobotAgent) -> None:
+    """同一 chat_id 的并发请求被 Lock 串行化。"""
+    order: list[str] = []
+
+    async def slow_receive():
+        from claude_agent_sdk import AssistantMessage, TextBlock
+        await asyncio.sleep(0.05)
+        order.append("first_done")
+        yield AssistantMessage(content=[TextBlock(text="first")], model="m")
+
+    async def fast_receive():
+        from claude_agent_sdk import AssistantMessage, TextBlock
+        order.append("second_done")
+        yield AssistantMessage(content=[TextBlock(text="second")], model="m")
+
+    client1 = MagicMock()
+    client1.connect = AsyncMock()
+    client1.query = AsyncMock()
+    client1.disconnect = AsyncMock()
+    client1.receive_response = slow_receive
+
+    client2 = MagicMock()
+    client2.connect = AsyncMock()
+    client2.query = AsyncMock()
+    client2.disconnect = AsyncMock()
+    client2.receive_response = fast_receive
+
+    call_count = 0
+
+    def _factory(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return client1  # always same client
+
+    with patch("nanobot.agent.ClaudeSDKClient", side_effect=_factory):
+        # Inject client1 into the session pre-emptively
+        agent._sessions["chat1"] = client1
+
+        t1 = asyncio.create_task(agent.ask("chat1", "slow"))
+        await asyncio.sleep(0)  # let t1 acquire the lock
+
+        # Now change receive_response to fast for the second call
+        client1.receive_response = fast_receive
+        t2 = asyncio.create_task(agent.ask("chat1", "fast"))
+
+        await asyncio.gather(t1, t2)
+
+    # first_done must appear before second_done (serialized by lock)
+    assert order.index("first_done") < order.index("second_done")
