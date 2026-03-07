@@ -150,13 +150,19 @@ class NanobotAgent:
                             if isinstance(block, TextBlock) and block.text:
                                 parts.append(block.text)
                             elif isinstance(block, ToolUseBlock):
-                                # 工具调用参数（debug 级别，生产环境不刷屏）
-                                logger.debug(
-                                    "[{}] ⚡ {} | {}",
-                                    chat_id,
-                                    block.name,
-                                    str(block.input)[:300],
-                                )
+                                # 工具调用详情 - 打印到日志便于排查
+                                tool_input = block.input
+                                if block.name == "Bash" and isinstance(tool_input, dict):
+                                    cmd = tool_input.get("command", "")
+                                    logger.info("[{}] $ {}", chat_id, cmd[:200])
+                                elif block.name == "Write" and isinstance(tool_input, dict):
+                                    file_path = tool_input.get("file_path", "")
+                                    logger.info("[{}] ✍️  Write {}", chat_id, file_path)
+                                elif block.name == "Read" and isinstance(tool_input, dict):
+                                    file_path = tool_input.get("file_path", "")
+                                    logger.info("[{}] 📖 Read {}", chat_id, file_path)
+                                else:
+                                    logger.info("[{}] ⚡ {} | {}", chat_id, block.name, str(tool_input)[:200])
 
                     elif isinstance(msg, SystemMessage):
                         logger.debug("[{}] sys subtype={}", chat_id, msg.subtype)

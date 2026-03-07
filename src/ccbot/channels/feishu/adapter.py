@@ -161,40 +161,12 @@ class FeishuChannel(Channel):
 
         logger.info("处理消息: sender={} chat={} content={}", sender_id, chat_id, content[:60])
 
-        # 发送 Typing 状态（使用 chat_id，不是 reply_to）
-        await self._send_typing_indicator(chat_id)
+        # 添加 WINK 表情表示已收到消息
+        await self._add_reaction(message_id, "WINK")
 
-        # 创建进度回调：批量收集 loop 信息，每 3-5 个汇总发送
-        progress_buffer: list[str] = []
-        last_send_time = time.time()
-
+        # 进度回调：只打印日志，不发送消息给用户
         async def progress_cb(msg: str) -> None:
-            nonlocal last_send_time
-
-            # 1. 总是打印日志
             logger.info("[{}] 进度: {}", chat_id, msg)
-
-            # 2. 收集工具调用消息
-            if msg.startswith("🔧"):
-                progress_buffer.append(msg)
-
-                # 每 3 个工具调用或超过 5 秒，批量发送一次
-                now = time.time()
-                if len(progress_buffer) >= 3 or (progress_buffer and now - last_send_time > 5):
-                    batch_msg = "⏳ 执行中:\n" + "\n".join(progress_buffer)
-                    progress_buffer.clear()
-                    last_send_time = now
-                    try:
-                        await self.send(reply_to, batch_msg)
-                    except Exception:
-                        pass  # 发送失败不影响主流程
-
-            # 3. 关键里程碑消息立即发送
-            elif any(msg.startswith(p) for p in ["📋", "✅", "🎯", "❌"]):
-                try:
-                    await self.send(reply_to, msg)
-                except Exception:
-                    pass
 
         try:
             # 调用业务处理器
@@ -429,6 +401,33 @@ class FeishuChannel(Channel):
 
         except Exception as e:
             logger.exception("Pipeline 处理失败: {}", e)
+
+    async def _add_reaction(self, message_id: str, emoji_type: str) -> None:
+        """添加表情反应。"""
+        if not self._client:
+            return
+
+        from lark_oapi.api.im.v1 import (
+            CreateMessageReactionRequest,
+            CreateMessageReactionRequestBody,
+            Emoji,
+        )
+
+        try:
+            request = (
+                CreateMessageReactionRequest.builder()
+                .message_id(message_id)
+                .request_body(
+                    CreateMessageReactionRequestBody.builder()
+                    .reaction_type(Emoji.builder().emoji_type(emoji_type).build())
+                    .build()
+                )
+                .build()
+            )
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._client.im.v1.message_reaction.create, request)
+        except Exception as e:
+            logger.debug("添加表情失败: {}", e)
 
     async def _fetch_bot_open_id(self) -> None:
         """获取 bot open_id。"""
