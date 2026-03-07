@@ -6,7 +6,7 @@ list of card elements into groups so that each group contains at most one
 table, allowing nanobot to send multiple cards instead of failing.
 """
 
-from nanobot.feishu import FeishuBot
+from ccbot.feishu import FeishuBot
 
 
 def _md(text: str) -> dict:

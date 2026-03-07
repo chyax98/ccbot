@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from nanobot.heartbeat import HeartbeatService, _has_active_tasks
+from ccbot.heartbeat import HeartbeatService, _has_active_tasks
 
 
 # ---- _has_active_tasks ----

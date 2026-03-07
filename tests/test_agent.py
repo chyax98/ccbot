@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nanobot.agent import NanobotAgent
-from nanobot.config import AgentConfig
-from nanobot.workspace import WorkspaceManager
+from ccbot.agent import NanobotAgent
+from ccbot.config import AgentConfig
+from ccbot.workspace import WorkspaceManager
 
 
 @pytest.fixture

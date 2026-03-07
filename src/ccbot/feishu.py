@@ -14,7 +14,7 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.config import FeishuConfig
+from ccbot.config import FeishuConfig
 
 import importlib.util
 

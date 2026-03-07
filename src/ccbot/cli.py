@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from nanobot import __logo__, __version__
+from ccbot import __logo__, __version__
 
 app = typer.Typer(
     name="nanobot",
@@ -64,9 +64,9 @@ def chat(
     workspace: Annotated[str | None, typer.Option("--workspace", "-w", help="workspace 路径")] = None,
 ) -> None:
     """与 Claude Agent SDK 直接对话（交互模式或单次查询，支持多 Agent 调度）。"""
-    from nanobot.config import AgentConfig
-    from nanobot.team import AgentTeam
-    from nanobot.workspace import WorkspaceManager
+    from ccbot.config import AgentConfig
+    from ccbot.team import AgentTeam
+    from ccbot.workspace import WorkspaceManager
 
     ws_path = Path(workspace) if workspace else Path.home() / ".nanobot" / "workspace"
     ws = WorkspaceManager(ws_path)
@@ -118,8 +118,8 @@ def worker(
     max_turns: Annotated[int, typer.Option("--max-turns", help="最大轮数")] = 30,
 ) -> None:
     """启动单次 worker agent 执行任务，结果写入文件（备用：供外部脚本调用）。"""
-    from nanobot.agent import NanobotAgent
-    from nanobot.config import AgentConfig
+    from ccbot.agent import NanobotAgent
+    from ccbot.config import AgentConfig
 
     out_path = Path(output).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,11 +154,11 @@ def run(
     ] = _DEFAULT_CONFIG,
 ) -> None:
     """启动飞书机器人（Supervisor+Worker 多 Agent 模式）。"""
-    from nanobot.config import load_config
-    from nanobot.feishu import FeishuBot
-    from nanobot.heartbeat import HeartbeatService
-    from nanobot.team import AgentTeam
-    from nanobot.workspace import WorkspaceManager
+    from ccbot.config import load_config
+    from ccbot.feishu import FeishuBot
+    from ccbot.heartbeat import HeartbeatService
+    from ccbot.team import AgentTeam
+    from ccbot.workspace import WorkspaceManager
 
     config = load_config(config_path)
 
@@ -220,10 +220,10 @@ def serve(
     ] = _DEFAULT_CONFIG,
 ) -> None:
     """启动 A2A 协议 HTTP 服务器（Agent-to-Agent 通信）。"""
-    from nanobot.config import load_config
-    from nanobot.server import A2AServer
-    from nanobot.team import AgentTeam
-    from nanobot.workspace import WorkspaceManager
+    from ccbot.config import load_config
+    from ccbot.server import A2AServer
+    from ccbot.team import AgentTeam
+    from ccbot.workspace import WorkspaceManager
 
     config = load_config(config_path)
 

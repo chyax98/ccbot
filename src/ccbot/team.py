@@ -16,9 +16,9 @@ from collections.abc import Awaitable, Callable
 
 from loguru import logger
 
-from nanobot.agent import NanobotAgent
-from nanobot.config import AgentConfig
-from nanobot.workspace import WorkspaceManager
+from ccbot.agent import NanobotAgent
+from ccbot.config import AgentConfig
+from ccbot.workspace import WorkspaceManager
 
 # Supervisor 额外注入的多 Agent 调度说明
 _SUPERVISOR_PROMPT = """\

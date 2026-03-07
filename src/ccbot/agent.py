@@ -17,8 +17,8 @@ from claude_agent_sdk import (
 )
 from loguru import logger
 
-from nanobot.config import AgentConfig
-from nanobot.workspace import WorkspaceManager
+from ccbot.config import AgentConfig
+from ccbot.workspace import WorkspaceManager
 
 _HELP_TEXT = """\
 🐈 nanobot commands:

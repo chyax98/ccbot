@@ -18,8 +18,8 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from sse_starlette.sse import EventSourceResponse
 
-from nanobot.config import A2AConfig
-from nanobot.team import AgentTeam
+from ccbot.config import A2AConfig
+from ccbot.team import AgentTeam
 
 
 class A2AServer:

@@ -5,11 +5,11 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from nanobot.agent import NanobotAgent
-from nanobot.config import A2AConfig, AgentConfig
-from nanobot.server import A2AServer
-from nanobot.team import AgentTeam
-from nanobot.workspace import WorkspaceManager
+from ccbot.agent import NanobotAgent
+from ccbot.config import A2AConfig, AgentConfig
+from ccbot.server import A2AServer
+from ccbot.team import AgentTeam
+from ccbot.workspace import WorkspaceManager
 
 
 @pytest.fixture
