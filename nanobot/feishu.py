@@ -268,14 +268,18 @@ class FeishuBot:
             logger.warning("获取 bot open_id 出错: {}", e)
 
     def _is_bot_mentioned(self, message: Any) -> bool:
-        """检查消息中是否 @了本 bot（open_id 精准匹配）。"""
+        """检查消息中是否 @了本 bot 或 @all。"""
         mentions = getattr(message, "mentions", None) or []
         if not mentions:
             return False
         for m in mentions:
             uid = getattr(m, "id", None)
-            if uid and getattr(uid, "open_id", "") == self._bot_open_id:
-                return True
+            if not uid:
+                continue
+            if getattr(uid, "open_id", "") == self._bot_open_id:
+                return True  # @bot
+            if getattr(uid, "user_id", "") == "all":
+                return True  # @all
         return False
 
     def _is_allowed(self, sender_id: str) -> bool:
