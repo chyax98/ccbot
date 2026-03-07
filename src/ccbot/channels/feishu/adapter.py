@@ -164,25 +164,37 @@ class FeishuChannel(Channel):
         # 发送 Typing 状态（使用 chat_id，不是 reply_to）
         await self._send_typing_indicator(chat_id)
 
-        # 创建进度回调：打印日志 + 发送里程碑消息
-        last_tool_msg = {"time": 0, "msg": ""}
+        # 创建进度回调：批量收集 loop 信息，每 3-5 个汇总发送
+        progress_buffer: list[str] = []
+        last_send_time = time.time()
 
         async def progress_cb(msg: str) -> None:
+            nonlocal last_send_time
+
             # 1. 总是打印日志
             logger.info("[{}] 进度: {}", chat_id, msg)
 
-            # 2. 对于里程碑消息，也发送给用户
-            # 避免重复发送同一消息（3秒内）
-            now = time.time()
-            if msg != last_tool_msg["msg"] or now - last_tool_msg["time"] > 3:
-                last_tool_msg["time"] = now
-                last_tool_msg["msg"] = msg
-                # 只发送关键里程碑，避免刷屏
-                if any(msg.startswith(p) for p in ["📋", "✅", "🎯", "❌", "🔧"]):
+            # 2. 收集工具调用消息
+            if msg.startswith("🔧"):
+                progress_buffer.append(msg)
+
+                # 每 3 个工具调用或超过 5 秒，批量发送一次
+                now = time.time()
+                if len(progress_buffer) >= 3 or (progress_buffer and now - last_send_time > 5):
+                    batch_msg = "⏳ 执行中:\n" + "\n".join(progress_buffer)
+                    progress_buffer.clear()
+                    last_send_time = now
                     try:
-                        await self.send(reply_to, msg)
+                        await self.send(reply_to, batch_msg)
                     except Exception:
                         pass  # 发送失败不影响主流程
+
+            # 3. 关键里程碑消息立即发送
+            elif any(msg.startswith(p) for p in ["📋", "✅", "🎯", "❌"]):
+                try:
+                    await self.send(reply_to, msg)
+                except Exception:
+                    pass
 
         try:
             # 调用业务处理器
