@@ -299,14 +299,18 @@ class FeishuBot:
             ws_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(ws_loop)
             _lark_ws_client.loop = ws_loop
+            attempt = 0
             try:
                 while self._running:
                     try:
+                        if attempt > 0:
+                            logger.info("Feishu WebSocket 重连 (第 {} 次)...", attempt)
                         self._ws_client.start()
                     except Exception as e:
-                        logger.warning("Feishu WebSocket 错误: {}", e)
+                        logger.warning("Feishu WebSocket 断开: {}", e)
                     if self._running:
-                        time.sleep(5)
+                        attempt += 1
+                        time.sleep(2)
             finally:
                 ws_loop.close()
 

@@ -154,8 +154,8 @@ async def test_last_chat_id_updated(agent: NanobotAgent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_progress_called_on_tool_use(agent: NanobotAgent) -> None:
-    """首次 TaskProgressMessage 触发 on_progress 回调。"""
+async def test_on_progress_called_per_tool(agent: NanobotAgent) -> None:
+    """每次 TaskProgressMessage 都触发 on_progress（per-tool 通知）。"""
     from claude_agent_sdk import AssistantMessage, TextBlock, TaskProgressMessage, TaskUsage
 
     progress_calls: list[str] = []
@@ -164,20 +164,14 @@ async def test_on_progress_called_on_tool_use(agent: NanobotAgent) -> None:
         progress_calls.append(msg)
 
     usage = TaskUsage(input_tokens=0, output_tokens=0, cache_read_input_tokens=0, cache_creation_input_tokens=0)
-    task_msg = TaskProgressMessage(
-        subtype="progress",
-        data={},
-        task_id="t1",
-        description="running",
-        usage=usage,
-        uuid="u1",
-        session_id="s1",
-        last_tool_name="Bash",
-    )
-    text_msg = AssistantMessage(
-        content=[TextBlock(text="done")],
-        model="claude-sonnet-4-6",
-    )
+
+    def make_task(tool_name: str) -> TaskProgressMessage:
+        return TaskProgressMessage(
+            subtype="progress", data={}, task_id="t1", description="running",
+            usage=usage, uuid="u1", session_id="s1", last_tool_name=tool_name,
+        )
+
+    text_msg = AssistantMessage(content=[TextBlock(text="done")], model="claude-sonnet-4-6")
 
     client = MagicMock()
     client.connect = AsyncMock()
@@ -185,8 +179,9 @@ async def test_on_progress_called_on_tool_use(agent: NanobotAgent) -> None:
     client.disconnect = AsyncMock()
 
     async def _receive():
-        yield task_msg
-        yield task_msg  # second TaskProgressMessage should NOT trigger again
+        yield make_task("Bash")
+        yield make_task("Read")    # different tool — also notified
+        yield make_task("Bash")    # same tool again — also notified
         yield text_msg
 
     client.receive_response = _receive
@@ -195,8 +190,9 @@ async def test_on_progress_called_on_tool_use(agent: NanobotAgent) -> None:
         reply = await agent.ask("chat1", "run something", on_progress=on_progress)
 
     assert reply == "done"
-    assert len(progress_calls) == 1  # only first tool call notified
+    assert len(progress_calls) == 3  # one notification per TaskProgressMessage
     assert "Bash" in progress_calls[0]
+    assert "Read" in progress_calls[1]
 
 
 @pytest.mark.asyncio

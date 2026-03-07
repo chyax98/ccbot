@@ -5,7 +5,16 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, TaskProgressMessage, TextBlock
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    ResultMessage,
+    SystemMessage,
+    TaskProgressMessage,
+    TextBlock,
+    ToolUseBlock,
+)
 from loguru import logger
 
 from nanobot.config import AgentConfig
@@ -83,7 +92,7 @@ class NanobotAgent:
     ) -> str:
         """处理消息，返回回复文本。
 
-        on_progress: 可选回调，首次检测到工具调用时触发（工具名），用于发送进度提示。
+        on_progress: 每次工具调用时触发，发送进度提示给用户。
         """
         self.last_chat_id = chat_id
         cmd = prompt.strip().lower()
@@ -105,29 +114,54 @@ class NanobotAgent:
                     pass
             return "⏹ Stopped."
 
-        logger.info("处理来自 {}: {}", chat_id, prompt[:80])
+        logger.info("[{}] ← {}", chat_id, prompt[:120])
 
         async with self._get_lock(chat_id):
             try:
                 client = await self._get_client(chat_id)
                 await client.query(prompt)
                 parts: list[str] = []
-                progress_sent = False
+                tool_count = 0
 
                 async for msg in client.receive_response():
+                    # TaskProgressMessage 是 SystemMessage 子类，需先匹配
                     if isinstance(msg, TaskProgressMessage):
-                        # 首次工具调用时通知一次（避免刷屏）
-                        if on_progress and not progress_sent:
-                            tool = msg.last_tool_name or "tool"
-                            await on_progress(f"🔧 {tool}…")
-                            progress_sent = True
+                        tool = msg.last_tool_name or "tool"
+                        desc = (msg.description or "").strip()
+                        logger.info("[{}] 🔧 {} | {}", chat_id, tool, desc[:120])
+                        tool_count += 1
+                        if on_progress:
+                            await on_progress(f"🔧 {tool}")
+
+                    elif isinstance(msg, ResultMessage):
+                        cost = f"${msg.total_cost_usd:.4f}" if msg.total_cost_usd else "n/a"
+                        duration = f"{msg.duration_ms / 1000:.1f}s"
+                        logger.info(
+                            "[{}] ✅ 完成 | {} 轮 | {} 工具 | {} | {}",
+                            chat_id, msg.num_turns, tool_count, cost, duration,
+                        )
+                        if msg.is_error:
+                            logger.warning("[{}] stop_reason={}", chat_id, msg.stop_reason)
+
                     elif isinstance(msg, AssistantMessage):
                         for block in msg.content:
-                            if isinstance(block, TextBlock):
+                            if isinstance(block, TextBlock) and block.text:
                                 parts.append(block.text)
+                            elif isinstance(block, ToolUseBlock):
+                                # 工具调用参数（debug 级别，生产环境不刷屏）
+                                logger.debug(
+                                    "[{}] ⚡ {} | {}",
+                                    chat_id, block.name, str(block.input)[:300],
+                                )
 
-                return "\n".join(parts) or "（无响应）"
+                    elif isinstance(msg, SystemMessage):
+                        logger.debug("[{}] sys subtype={}", chat_id, msg.subtype)
+
+                reply = "\n".join(parts) or "（无响应）"
+                logger.info("[{}] → {} chars", chat_id, len(reply))
+                return reply
+
             except Exception as e:
-                logger.error("Agent 出错 chat_id={}: {}", chat_id, e)
+                logger.error("[{}] Agent 出错: {}", chat_id, e)
                 await self._close_session(chat_id)
                 return f"抱歉，处理消息时出现错误: {e}"
