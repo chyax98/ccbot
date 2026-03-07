@@ -1,117 +1,134 @@
+"""Tests for HeartbeatService and _has_active_tasks helper."""
+
 import asyncio
 
 import pytest
 
-from nanobot.heartbeat.service import HeartbeatService
-from nanobot.providers.base import LLMResponse, ToolCallRequest
+from nanobot.heartbeat import HeartbeatService, _has_active_tasks
 
 
-class DummyProvider:
-    def __init__(self, responses: list[LLMResponse]):
-        self._responses = list(responses)
+# ---- _has_active_tasks ----
 
-    async def chat(self, *args, **kwargs) -> LLMResponse:
-        if self._responses:
-            return self._responses.pop(0)
-        return LLMResponse(content="", tool_calls=[])
+def test_no_active_section_returns_false() -> None:
+    assert not _has_active_tasks("# Notes\n\nsome text")
+
+
+def test_empty_active_section_returns_false() -> None:
+    content = "## Active Tasks\n\n## Done\n\nfoo"
+    assert not _has_active_tasks(content)
+
+
+def test_active_section_with_content_returns_true() -> None:
+    content = "## Active Tasks\n\n- [ ] do something\n\n## Done"
+    assert _has_active_tasks(content)
+
+
+def test_active_section_comment_only_returns_false() -> None:
+    content = "## Active Tasks\n\n<!-- nothing here -->\n\n## Done"
+    assert not _has_active_tasks(content)
+
+
+def test_case_insensitive_active_heading() -> None:
+    content = "## ACTIVE TASK\n\n- [ ] job"
+    assert _has_active_tasks(content)
+
+
+# ---- HeartbeatService ----
+
+@pytest.mark.asyncio
+async def test_tick_skips_when_file_missing(tmp_path) -> None:
+    executed: list[str] = []
+
+    async def on_execute(prompt: str) -> str:
+        executed.append(prompt)
+        return "done"
+
+    async def on_notify(content: str) -> None:
+        pass
+
+    service = HeartbeatService(
+        heartbeat_file=tmp_path / "HEARTBEAT.md",
+        on_execute=on_execute,
+        on_notify=on_notify,
+    )
+    await service._tick()
+    assert executed == []
 
 
 @pytest.mark.asyncio
-async def test_start_is_idempotent(tmp_path) -> None:
-    provider = DummyProvider([])
+async def test_tick_skips_when_no_active_tasks(tmp_path) -> None:
+    hb = tmp_path / "HEARTBEAT.md"
+    hb.write_text("## Active Tasks\n\n<!-- empty -->\n", encoding="utf-8")
+
+    executed: list[str] = []
+
+    async def on_execute(prompt: str) -> str:
+        executed.append(prompt)
+        return "done"
+
+    async def on_notify(content: str) -> None:
+        pass
 
     service = HeartbeatService(
-        workspace=tmp_path,
-        provider=provider,
-        model="openai/gpt-4o-mini",
-        interval_s=9999,
-        enabled=True,
+        heartbeat_file=hb,
+        on_execute=on_execute,
+        on_notify=on_notify,
     )
+    await service._tick()
+    assert executed == []
 
+
+@pytest.mark.asyncio
+async def test_tick_executes_and_notifies_when_active_tasks(tmp_path) -> None:
+    hb = tmp_path / "HEARTBEAT.md"
+    hb.write_text("## Active Tasks\n\n- [ ] check news\n", encoding="utf-8")
+
+    executed: list[str] = []
+    notified: list[str] = []
+
+    async def on_execute(prompt: str) -> str:
+        executed.append(prompt)
+        return "report ready"
+
+    async def on_notify(content: str) -> None:
+        notified.append(content)
+
+    service = HeartbeatService(
+        heartbeat_file=hb,
+        on_execute=on_execute,
+        on_notify=on_notify,
+    )
+    await service._tick()
+
+    assert len(executed) == 1
+    assert "HEARTBEAT.md" in executed[0] or "check news" in executed[0]
+    assert notified == ["report ready"]
+
+
+@pytest.mark.asyncio
+async def test_start_creates_background_task(tmp_path) -> None:
+    service = HeartbeatService(
+        heartbeat_file=tmp_path / "HEARTBEAT.md",
+        on_execute=lambda p: asyncio.coroutine(lambda: "")(),
+        on_notify=lambda c: asyncio.coroutine(lambda: None)(),
+        interval_s=9999,
+    )
     await service.start()
-    first_task = service._task
-    await service.start()
-
-    assert service._task is first_task
-
+    assert service._task is not None
+    assert not service._task.done()
     service.stop()
     await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
-async def test_decide_returns_skip_when_no_tool_call(tmp_path) -> None:
-    provider = DummyProvider([LLMResponse(content="no tool call", tool_calls=[])])
+async def test_stop_cancels_task(tmp_path) -> None:
     service = HeartbeatService(
-        workspace=tmp_path,
-        provider=provider,
-        model="openai/gpt-4o-mini",
+        heartbeat_file=tmp_path / "HEARTBEAT.md",
+        on_execute=lambda p: asyncio.coroutine(lambda: "")(),
+        on_notify=lambda c: asyncio.coroutine(lambda: None)(),
+        interval_s=9999,
     )
-
-    action, tasks = await service._decide("heartbeat content")
-    assert action == "skip"
-    assert tasks == ""
-
-
-@pytest.mark.asyncio
-async def test_trigger_now_executes_when_decision_is_run(tmp_path) -> None:
-    (tmp_path / "HEARTBEAT.md").write_text("- [ ] do thing", encoding="utf-8")
-
-    provider = DummyProvider([
-        LLMResponse(
-            content="",
-            tool_calls=[
-                ToolCallRequest(
-                    id="hb_1",
-                    name="heartbeat",
-                    arguments={"action": "run", "tasks": "check open tasks"},
-                )
-            ],
-        )
-    ])
-
-    called_with: list[str] = []
-
-    async def _on_execute(tasks: str) -> str:
-        called_with.append(tasks)
-        return "done"
-
-    service = HeartbeatService(
-        workspace=tmp_path,
-        provider=provider,
-        model="openai/gpt-4o-mini",
-        on_execute=_on_execute,
-    )
-
-    result = await service.trigger_now()
-    assert result == "done"
-    assert called_with == ["check open tasks"]
-
-
-@pytest.mark.asyncio
-async def test_trigger_now_returns_none_when_decision_is_skip(tmp_path) -> None:
-    (tmp_path / "HEARTBEAT.md").write_text("- [ ] do thing", encoding="utf-8")
-
-    provider = DummyProvider([
-        LLMResponse(
-            content="",
-            tool_calls=[
-                ToolCallRequest(
-                    id="hb_1",
-                    name="heartbeat",
-                    arguments={"action": "skip"},
-                )
-            ],
-        )
-    ])
-
-    async def _on_execute(tasks: str) -> str:
-        return tasks
-
-    service = HeartbeatService(
-        workspace=tmp_path,
-        provider=provider,
-        model="openai/gpt-4o-mini",
-        on_execute=_on_execute,
-    )
-
-    assert await service.trigger_now() is None
+    await service.start()
+    service.stop()
+    await asyncio.sleep(0.05)
+    assert service._task is None or service._task.cancelled() or service._task.done()
