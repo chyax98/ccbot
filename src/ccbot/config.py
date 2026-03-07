@@ -65,6 +65,9 @@ class FeishuConfig(BaseModel):
         "milestone"  # 进度反馈: "edit"=编辑 / "milestone"=关键节点 / "verbose"=详细
     )
 
+    # Pipeline 配置
+    use_v2_pipeline: bool = True  # 使用新 Pipeline（Dedup + Debounce + Queue）
+
 
 class Config(BaseSettings):
     feishu: FeishuConfig = Field(default_factory=FeishuConfig)

@@ -1,3 +1,5 @@
 """Channel adapters for different messaging platforms."""
 
-__all__ = []
+from ccbot.channels.base import Channel
+
+__all__ = ["Channel"]
