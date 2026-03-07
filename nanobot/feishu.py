@@ -674,8 +674,22 @@ class FeishuBot:
             chat_type = message.chat_type
             msg_type = message.message_type
 
-            if not self._is_allowed(sender_id):
-                logger.warning("拒绝访问: sender_id={}", sender_id)
+            # --- 策略检查 ---
+            if chat_type == "p2p":
+                # 私聊：pairing 模式只允许白名单用户
+                if self.config.dm_policy == "pairing" and not self._is_allowed(sender_id):
+                    logger.debug("DM pairing 拒绝: sender_id={}", sender_id)
+                    return
+            else:
+                # 群聊：require_mention 时，无 @ 则静默忽略
+                if self.config.require_mention:
+                    mentions = getattr(message, "mentions", None) or []
+                    if not mentions:
+                        return
+
+            # 全局白名单（allow_from 非 * 时始终生效）
+            if "*" not in self.config.allow_from and not self._is_allowed(sender_id):
+                logger.warning("全局白名单拒绝: sender_id={}", sender_id)
                 return
 
             await self._add_reaction(message_id, self.config.react_emoji)
@@ -688,8 +702,18 @@ class FeishuBot:
             except json.JSONDecodeError:
                 content_json = {}
 
+            # 群聊 @mention：从文本中去掉 @_user_N 占位符，避免传给 agent
+            def _strip_mentions(text: str) -> str:
+                if chat_type != "group" or not self.config.require_mention:
+                    return text
+                for m in (getattr(message, "mentions", None) or []):
+                    key = getattr(m, "key", "")
+                    if key:
+                        text = text.replace(key, "")
+                return text.strip()
+
             if msg_type == "text":
-                text = content_json.get("text", "")
+                text = _strip_mentions(content_json.get("text", ""))
                 if text:
                     content_parts.append(text)
 

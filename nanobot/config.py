@@ -29,6 +29,12 @@ class FeishuConfig(BaseModel):
     verification_token: str = ""
     allow_from: list[str] = Field(default_factory=lambda: ["*"])
     react_emoji: str = "THUMBSUP"
+    # 私聊策略: "open"=所有人 / "pairing"=仅 allow_from 白名单
+    dm_policy: str = "open"
+    # 群聊策略: "open"=所有群（目前唯一选项，预留扩展）
+    group_policy: str = "open"
+    # 群聊是否需要 @bot 才响应
+    require_mention: bool = False
 
 
 class Config(BaseSettings):
