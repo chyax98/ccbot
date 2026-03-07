@@ -2,7 +2,7 @@
 active: true
 iteration: 1
 session_id: 
-max_iterations: 0
+max_iterations: 30
 completion_promise: null
 started_at: "2026-03-07T21:04:09Z"
 ---
@@ -12,6 +12,8 @@ started_at: "2026-03-07T21:04:09Z"
 
   将 ccbot 从单体 FeishuBot 重构为 OpenClaw 风格的分层架构，保持
   ClaudeAgent SDK 原生体验，重点优化 Agent 调度和可靠性。
+
+记住：一定使用 claude agentsdk，充分挖掘claude agentsdk-python v0.1.48 版本的潜力，参考 openclaw 的整体方案，我们设计我们自己的方案，更强大 更简洁（claudecode 原生能力就很强），一定端到端完成任务才能结束，确保项目观测性强，和飞书的交互体验强大无比，调度系统强大，不要使用 pgsql等重型的，需要数据库就是要 sqlite 这样的，claude code 支持 skills subagent memory 工具 mcp 等能力，不要重复造轮子
 
 ## 核心架构
 
