@@ -1,0 +1,15 @@
+{
+  "// 说明": "Supervisor 配置（连接飞书，调度 Workers）",
+
+  "feishu": {
+    "app_id": "cli_your_app_id",
+    "app_secret": "your_app_secret",
+    "progress_mode": "milestone"
+  },
+
+  "agent": {
+    "model": "claude-opus-4-6",
+    "workspace": "~/.nanobot/supervisor",
+    "max_turns": 10
+  }
+}

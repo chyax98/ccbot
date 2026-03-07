@@ -863,8 +863,23 @@ class FeishuBot:
             # 普通消息（无 [name] 前缀）直接显示为单行状态
             _worker_status: dict[str, str] = {}
             _WORKER_PREFIX_RE = re.compile(r"^\[([^\]]+)\]\s*(.*)")
+            _MILESTONE_RE = re.compile(r"^(📋|✅|🎯|❌)")  # 关键节点标记
 
             async def _send_progress(msg: str) -> None:
+                # 判断是否为关键节点消息
+                is_milestone = bool(_MILESTONE_RE.match(msg))
+
+                # milestone 模式：关键节点发送新消息，工具调用编辑同一条
+                if self.config.progress_mode == "milestone" and is_milestone:
+                    await self.send(reply_to, msg)
+                    return
+
+                # verbose 模式：每条都发送新消息
+                if self.config.progress_mode == "verbose":
+                    await self.send(reply_to, msg)
+                    return
+
+                # edit 模式（默认）：编辑同一条消息
                 m = _WORKER_PREFIX_RE.match(msg)
                 if m:
                     _worker_status[m.group(1)] = m.group(2)

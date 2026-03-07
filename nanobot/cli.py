@@ -210,3 +210,42 @@ def run(
         await bot.start()
 
     asyncio.run(main())
+
+
+@app.command()
+def serve(
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", "-c", help="配置文件路径（JSON）"),
+    ] = _DEFAULT_CONFIG,
+) -> None:
+    """启动 A2A 协议 HTTP 服务器（Agent-to-Agent 通信）。"""
+    from nanobot.config import load_config
+    from nanobot.server import A2AServer
+    from nanobot.team import AgentTeam
+    from nanobot.workspace import WorkspaceManager
+
+    config = load_config(config_path)
+
+    if not config.a2a.enabled:
+        console.print("[yellow]A2A 服务器未启用，请在配置中设置 a2a.enabled = true[/yellow]")
+        raise typer.Exit(1)
+
+    workspace = WorkspaceManager(Path(config.agent.workspace))
+    team = AgentTeam(config.agent, workspace)
+    server = A2AServer(team, config.a2a)
+
+    console.print(
+        Panel(
+            f"{__logo__} 启动 A2A 服务器\\n"
+            f"Host: [cyan]{config.a2a.host}:{config.a2a.port}[/cyan]\\n"
+            f"Agent Card: [cyan]http://{config.a2a.host}:{config.a2a.port}/.well-known/agent.json[/cyan]\\n"
+            f"RPC Endpoint: [cyan]http://{config.a2a.host}:{config.a2a.port}/rpc[/cyan]\\n"
+            f"Model: [cyan]{config.agent.model or 'default'}[/cyan]\\n"
+            f"Workspace: [cyan]{workspace.path}[/cyan]",
+            border_style="cyan",
+        )
+    )
+
+    import uvicorn
+    uvicorn.run(server.app, host=config.a2a.host, port=config.a2a.port)

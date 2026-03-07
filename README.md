@@ -1,0 +1,195 @@
+# nanobot 🐈
+
+超轻量级个人 AI 助手框架，基于 **Claude Agent SDK** + **飞书接入** + **A2A 协议**。
+
+## 特性
+
+- 🚀 **Claude Agent SDK**：完整的工具能力（Read/Write/Bash/Glob/Grep/WebFetch/WebSearch）
+- 🤖 **多 Agent 编排**：Supervisor-Worker 架构，自动并行调度
+- 💬 **飞书机器人**：WebSocket 长连接，支持所有消息类型和媒体
+- 🔗 **A2A 协议**：Agent-to-Agent 跨机器通信，支持多轮对话
+- 🧠 **记忆系统**：MEMORY.md 长期记忆 + HISTORY.md 历史日志
+- ⏰ **定时任务**：HEARTBEAT.md 自动执行周期性任务
+- 🎯 **Skills 系统**：内置 + 自定义 skills，按需加载
+
+## 快速开始
+
+### 安装
+
+```bash
+git clone https://github.com/yourusername/nanobot.git
+cd nanobot
+uv sync
+```
+
+### 命令行对话
+
+```bash
+# 交互模式
+uv run nanobot chat
+
+# 单次查询
+uv run nanobot chat -m "你好"
+```
+
+### 飞书机器人
+
+1. 创建配置文件 `~/.nanobot/config.json`：
+
+```json
+{
+  "feishu": {
+    "app_id": "your_app_id",
+    "app_secret": "your_app_secret"
+  },
+  "agent": {
+    "model": "claude-sonnet-4-6",
+    "workspace": "~/.nanobot/workspace"
+  }
+}
+```
+
+2. 启动机器人：
+
+```bash
+uv run nanobot run
+```
+
+### A2A 服务器（Agent-to-Agent 通信）
+
+启动 HTTP 服务器，支持跨机器 Agent 通信：
+
+```bash
+# 配置 a2a.enabled = true
+uv run nanobot serve --config config.json
+```
+
+详见 [A2A 协议文档](docs/A2A.md)。
+
+## 架构
+
+```
+FeishuBot → on_message 回调 → AgentTeam.ask(chat_id, text)
+                                  ↓
+                            Supervisor（Opus）分析任务
+                                  ↓
+                            <dispatch> 计划？
+                                  ↓
+                    asyncio.gather 并行启动 Workers
+                                  ↓
+                            Supervisor 综合结果
+                                  ↓
+                            返回最终回复
+
+HeartbeatService → HEARTBEAT.md → AgentTeam.ask("heartbeat", prompt)
+                                  ↓
+                            FeishuBot.send(chat_id, result)
+```
+
+## 多 Agent 调度
+
+Supervisor 自动识别适合并行的任务，输出 `<dispatch>` 计划：
+
+```xml
+<dispatch>
+[
+  {
+    "name": "frontend",
+    "cwd": "/path/to/frontend",
+    "task": "实现登录页面",
+    "model": "claude-sonnet-4-6"
+  },
+  {
+    "name": "backend",
+    "cwd": "/path/to/backend",
+    "task": "实现登录 API"
+  }
+]
+</dispatch>
+```
+
+Workers 并行执行，结果自动综合后返回。
+
+## Workspace 结构
+
+```
+~/.nanobot/workspace/
+  memory/
+    MEMORY.md       # 长期记忆（始终载入 system_prompt）
+    HISTORY.md      # 历史日志（可 grep 查询）
+  SOUL.md           # Agent 个性
+  AGENTS.md         # 多 Agent 协作指令
+  USER.md           # 用户偏好
+  TOOLS.md          # 工具使用指南
+  HEARTBEAT.md      # 定时任务
+  skills/
+    <name>/SKILL.md # 自定义 skills
+```
+
+## CLI 命令
+
+| 命令 | 说明 |
+|------|------|
+| `nanobot version` | 显示版本 |
+| `nanobot chat` | 交互式对话 |
+| `nanobot chat -m "消息"` | 单次查询 |
+| `nanobot run` | 启动飞书机器人 |
+| `nanobot serve` | 启动 A2A HTTP 服务器 |
+| `nanobot worker` | 单次 worker（供外部调用） |
+
+## 配置
+
+完整配置示例：
+
+```json
+{
+  "feishu": {
+    "app_id": "cli_xxx",
+    "app_secret": "xxx",
+    "allow_from": ["*"],
+    "react_emoji": "THUMBSUP",
+    "require_mention": false
+  },
+  "agent": {
+    "model": "claude-sonnet-4-6",
+    "max_turns": 10,
+    "workspace": "~/.nanobot/workspace",
+    "heartbeat_enabled": true,
+    "heartbeat_interval": 1800,
+    "mcp_servers": {}
+  },
+  "a2a": {
+    "enabled": false,
+    "host": "0.0.0.0",
+    "port": 8765,
+    "name": "nanobot",
+    "description": "Claude Agent SDK powered assistant"
+  }
+}
+```
+
+环境变量优先级更高：
+
+```bash
+export NANOBOT_FEISHU__APP_ID=cli_xxx
+export NANOBOT_FEISHU__APP_SECRET=xxx
+export NANOBOT_AGENT__MODEL=claude-opus-4-6
+```
+
+## 开发
+
+```bash
+# 安装开发依赖
+uv sync --extra dev
+
+# 运行测试
+uv run pytest
+
+# 代码检查
+uv run ruff check .
+uv run mypy nanobot
+```
+
+## 许可
+
+MIT License

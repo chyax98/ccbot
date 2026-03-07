@@ -25,6 +25,9 @@ dependencies = [
     "loguru>=0.7.3,<1.0.0",
     "typer>=0.20.0,<1.0.0",
     "rich>=14.0.0,<15.0.0",
+    "fastapi>=0.115.0,<1.0.0",
+    "uvicorn>=0.32.0,<1.0.0",
+    "sse-starlette>=2.2.0,<3.0.0",
 ]
 
 [project.optional-dependencies]

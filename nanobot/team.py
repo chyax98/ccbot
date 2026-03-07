@@ -87,6 +87,9 @@ class AgentTeam:
     ) -> str:
         """处理消息：Supervisor 分析 → 可选 dispatch → 综合回复。"""
         # Step 1: Supervisor 分析任务
+        if on_progress:
+            await on_progress("📋 分析任务中...")
+
         supervisor_reply = await self._supervisor.ask(
             chat_id, prompt, on_progress=on_progress
         )
@@ -108,7 +111,7 @@ class AgentTeam:
         names = ", ".join(t.get("name", "?") for t in tasks)
         logger.info("[{}] Supervisor 派发 {} 个 worker: {}", chat_id, len(tasks), names)
         if on_progress:
-            await on_progress(f"📋 派发 {len(tasks)} 个子任务: {names}")
+            await on_progress(f"📋 派发任务: {names}")
 
         # Step 3: 并行执行所有 worker
         results = await self._run_workers(chat_id, tasks, on_progress)
@@ -116,6 +119,9 @@ class AgentTeam:
         # Step 4: 喂回 Supervisor 综合
         synthesis = self._build_synthesis_prompt(tasks, results)
         logger.info("[{}] 所有 worker 完成，请求 Supervisor 综合", chat_id)
+        if on_progress:
+            await on_progress("🎯 综合结果中...")
+
         return await self._supervisor.ask(chat_id, synthesis, on_progress=on_progress)
 
     async def _run_workers(
@@ -145,9 +151,25 @@ class AgentTeam:
                     await on_progress(tagged)
 
             logger.info("[{}] 启动 worker name={} cwd={} model={}", chat_id, name, cwd, model or "default")
-            result = await worker.ask(f"{chat_id}:{name}", task["task"], on_progress=worker_progress)
-            logger.info("[{}] worker 完成 name={} ({} chars)", chat_id, name, len(result))
-            return result
+
+            try:
+                result = await worker.ask(f"{chat_id}:{name}", task["task"], on_progress=worker_progress)
+                logger.info("[{}] worker 完成 name={} ({} chars)", chat_id, name, len(result))
+
+                # 发送 worker 完成的 milestone 消息
+                if on_progress:
+                    await on_progress(f"✅ {name} 完成")
+
+                return result
+            except Exception as e:
+                logger.error("[{}] worker 失败 name={}: {}", chat_id, name, e)
+
+                # 发送 worker 失败的 milestone 消息
+                if on_progress:
+                    error_msg = str(e)[:80]
+                    await on_progress(f"❌ {name} 失败: {error_msg}")
+
+                raise
 
         return list(
             await asyncio.gather(*[run_one(t) for t in tasks], return_exceptions=True)
