@@ -67,23 +67,44 @@ uv run ccbot serve --config config.json
 
 ## 架构
 
-```
-FeishuBot → on_message 回调 → AgentTeam.ask(chat_id, text)
-                                  ↓
-                            Supervisor（Opus）分析任务
-                                  ↓
-                            <dispatch> 计划？
-                                  ↓
-                    asyncio.gather 并行启动 Workers
-                                  ↓
-                            Supervisor 综合结果
-                                  ↓
-                            返回最终回复
+ccbot v2 采用 OpenClaw 风格分层架构：
 
-HeartbeatService → HEARTBEAT.md → AgentTeam.ask("heartbeat", prompt)
-                                  ↓
-                            FeishuBot.send(chat_id, result)
 ```
+┌─────────────────────────────────────────────────────────────┐
+│  Channel Layer      │  Feishu Channel  │  CLI Channel      │
+├─────────────────────┴──────────────────┴────────────────────┤
+│                    Inbound Pipeline                          │
+│  Dedup (内存+JSON) → Debounce (300ms) → PerChatQueue        │
+├─────────────────────────────────────────────────────────────┤
+│                    Agent Runtime                             │
+│  AgentPool (Client 生命周期) + AgentTeam (Supervisor-Worker) │
+├─────────────────────────────────────────────────────────────┤
+│                    Outbound Layer                            │
+│              飞书卡片 / CLI 输出 / A2A 响应                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 核心流程
+
+```
+Feishu WebSocket
+       ↓
+FeishuChannel (集成 Pipeline)
+       ↓
+  1. Dedup: message_id 去重
+  2. Debounce: 300ms 防抖合并
+  3. Queue: 每 chat 串行队列
+       ↓
+AgentTeam.ask(chat_id, text)
+       ↓
+Supervisor 分析 → <dispatch>?
+       ↓
+并行 Workers (结构化 Pydantic 调度)
+       ↓
+综合结果 → 返回回复
+```
+
+详见 [架构文档](docs/ARCHITECTURE.md) 和 [迁移指南](docs/MIGRATION.md)。
 
 ## 多 Agent 调度
 
