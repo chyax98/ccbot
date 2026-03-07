@@ -1,4 +1,4 @@
-"""NanobotAgent: per-chat-id ClaudeSDKClient sessions with workspace integration."""
+"""CcbotAgent: per-chat-id ClaudeSDKClient sessions with workspace integration."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from ccbot.config import AgentConfig
 from ccbot.workspace import WorkspaceManager
 
 _HELP_TEXT = """\
-🐈 nanobot commands:
+🐈 ccbot commands:
 /new  — Start a new conversation (archives current context to memory)
 /stop — Cancel the active task
 /help — Show this help"""

@@ -133,7 +133,7 @@ def _make_mock_client(text_reply: str = "Hello!"):
 async def test_ask_returns_assistant_text(agent: NanobotAgent) -> None:
     mock_client = _make_mock_client("Hi there!")
 
-    with patch("nanobot.agent.ClaudeSDKClient", return_value=mock_client):
+    with patch("ccbot.agent.ClaudeSDKClient", return_value=mock_client):
         reply = await agent.ask("chat1", "Hello")
 
     assert reply == "Hi there!"
@@ -143,7 +143,7 @@ async def test_ask_returns_assistant_text(agent: NanobotAgent) -> None:
 async def test_ask_reuses_session_for_same_chat_id(agent: NanobotAgent) -> None:
     mock_client = _make_mock_client("ok")
 
-    with patch("nanobot.agent.ClaudeSDKClient", return_value=mock_client) as MockCls:
+    with patch("ccbot.agent.ClaudeSDKClient", return_value=mock_client) as MockCls:
         await agent.ask("chat1", "first")
         await agent.ask("chat1", "second")
 
@@ -163,7 +163,7 @@ async def test_ask_creates_separate_sessions_per_chat_id(agent: NanobotAgent) ->
         idx += 1
         return c
 
-    with patch("nanobot.agent.ClaudeSDKClient", side_effect=_factory):
+    with patch("ccbot.agent.ClaudeSDKClient", side_effect=_factory):
         await agent.ask("chat1", "msg")
         await agent.ask("chat2", "msg")
 
@@ -180,7 +180,7 @@ async def test_ask_closes_session_on_error(agent: NanobotAgent) -> None:
     mock_client.query = AsyncMock(side_effect=RuntimeError("boom"))
     mock_client.disconnect = AsyncMock()
 
-    with patch("nanobot.agent.ClaudeSDKClient", return_value=mock_client):
+    with patch("ccbot.agent.ClaudeSDKClient", return_value=mock_client):
         reply = await agent.ask("chat1", "Hello")
 
     assert "boom" in reply or "错误" in reply
@@ -191,7 +191,7 @@ async def test_ask_closes_session_on_error(agent: NanobotAgent) -> None:
 async def test_last_chat_id_updated(agent: NanobotAgent) -> None:
     mock_client = _make_mock_client("ok")
 
-    with patch("nanobot.agent.ClaudeSDKClient", return_value=mock_client):
+    with patch("ccbot.agent.ClaudeSDKClient", return_value=mock_client):
         await agent.ask("room42", "ping")
 
     assert agent.last_chat_id == "room42"
@@ -238,7 +238,7 @@ async def test_on_progress_called_per_tool(agent: NanobotAgent) -> None:
 
     client.receive_response = _receive
 
-    with patch("nanobot.agent.ClaudeSDKClient", return_value=client):
+    with patch("ccbot.agent.ClaudeSDKClient", return_value=client):
         reply = await agent.ask("chat1", "run something", on_progress=on_progress)
 
     assert reply == "done"
@@ -284,7 +284,7 @@ async def test_concurrent_requests_serialized_per_chat_id(agent: NanobotAgent) -
         call_count += 1
         return client1  # always same client
 
-    with patch("nanobot.agent.ClaudeSDKClient", side_effect=_factory):
+    with patch("ccbot.agent.ClaudeSDKClient", side_effect=_factory):
         # Inject client1 into the session pre-emptively
         agent._sessions["chat1"] = client1
 

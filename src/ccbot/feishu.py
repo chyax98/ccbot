@@ -633,7 +633,7 @@ class FeishuBot:
         message_id: str | None = None,
     ) -> tuple[str | None, str]:
         loop = asyncio.get_running_loop()
-        media_dir = Path.home() / ".nanobot" / "media"
+        media_dir = Path.home() / ".ccbot" / "media"
         media_dir.mkdir(parents=True, exist_ok=True)
 
         data, filename = None, None

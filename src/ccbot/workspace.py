@@ -108,8 +108,8 @@ class WorkspaceManager:
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}"
         now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
         return (
-            "# nanobot 🐈\n\n"
-            "You are nanobot, a helpful AI assistant.\n\n"
+            "# ccbot 🐈\n\n"
+            "You are ccbot, a helpful AI assistant.\n\n"
             f"## Runtime\n{runtime}\nCurrent time: {now}\n\n"
             f"## Workspace\nYour workspace is at: {ws}\n"
             f"- Long-term memory: {ws}/memory/MEMORY.md (write important facts here)\n"

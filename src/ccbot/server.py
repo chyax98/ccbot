@@ -4,7 +4,7 @@
 - Agent Card: /.well-known/agent.json
 - JSON-RPC 2.0: /rpc 端点
 - 方法: message/send (同步), message/stream (SSE 流式)
-- contextId 映射到 nanobot 的 chat_id，支持多轮对话
+- contextId 映射到 ccbot 的 chat_id，支持多轮对话
 """
 
 from __future__ import annotations
@@ -25,11 +25,11 @@ from ccbot.team import AgentTeam
 class A2AServer:
     """A2A 协议 HTTP 服务器。
 
-    将 nanobot 的 AgentTeam 暴露为 A2A 兼容的 HTTP 端点，
-    使得多个 nanobot 实例可以跨机器通信。
+    将 ccbot 的 AgentTeam 暴露为 A2A 兼容的 HTTP 端点，
+    使得多个 ccbot 实例可以跨机器通信。
 
     核心映射：
-    - A2A contextId → nanobot chat_id（多轮对话）
+    - A2A contextId → ccbot chat_id（多轮对话）
     - A2A message/send → team.ask()（同步）
     - A2A message/stream → team.ask() + SSE（流式）
     """
@@ -37,7 +37,7 @@ class A2AServer:
     def __init__(self, team: AgentTeam, config: A2AConfig) -> None:
         self.team = team
         self.config = config
-        self.app = FastAPI(title="nanobot A2A Server")
+        self.app = FastAPI(title="ccbot A2A Server")
         self._setup_routes()
 
     def _setup_routes(self) -> None:

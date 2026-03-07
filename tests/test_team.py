@@ -71,7 +71,7 @@ async def test_dispatch_runs_workers_and_synthesizes(team: AgentTeam, ws: Worksp
     worker_mock = MagicMock(spec=NanobotAgent)
     worker_mock.ask = AsyncMock(side_effect=fake_worker_ask)
 
-    with patch("nanobot.team.NanobotAgent", return_value=worker_mock):
+    with patch("ccbot.team.NanobotAgent", return_value=worker_mock):
         reply = await team.ask("chat1", "同时开发前后端登录")
 
     assert reply == "综合结果：前后端已完成"
@@ -91,7 +91,7 @@ async def test_dispatch_synthesis_contains_worker_results(team: AgentTeam) -> No
     worker_mock = MagicMock(spec=NanobotAgent)
     worker_mock.ask = AsyncMock(return_value="worker output")
 
-    with patch("nanobot.team.NanobotAgent", return_value=worker_mock):
+    with patch("ccbot.team.NanobotAgent", return_value=worker_mock):
         await team.ask("chat1", "task")
 
     # 第二次调用 Supervisor 的 prompt 是综合 prompt
@@ -111,7 +111,7 @@ async def test_dispatch_worker_failure_marked_in_synthesis(team: AgentTeam) -> N
     worker_mock = MagicMock(spec=NanobotAgent)
     worker_mock.ask = AsyncMock(side_effect=RuntimeError("boom"))
 
-    with patch("nanobot.team.NanobotAgent", return_value=worker_mock):
+    with patch("ccbot.team.NanobotAgent", return_value=worker_mock):
         await team.ask("chat1", "task")
 
     synthesis_prompt = supervisor.ask.call_args_list[1].args[1]
@@ -152,7 +152,7 @@ async def test_on_progress_tagged_with_worker_name(team: AgentTeam) -> None:
     worker_mock = MagicMock(spec=NanobotAgent)
     worker_mock.ask = AsyncMock(side_effect=worker_ask)
 
-    with patch("nanobot.team.NanobotAgent", return_value=worker_mock):
+    with patch("ccbot.team.NanobotAgent", return_value=worker_mock):
         await team.ask("chat1", "task", on_progress=on_progress)
 
     # worker progress 前缀 "[fe] "

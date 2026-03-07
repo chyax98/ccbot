@@ -1,4 +1,4 @@
-"""nanobot CLI 入口。"""
+"""ccbot CLI 入口。"""
 
 from __future__ import annotations
 
@@ -16,13 +16,13 @@ from rich.panel import Panel
 from ccbot import __logo__, __version__
 
 app = typer.Typer(
-    name="nanobot",
-    help="🐈 nanobot: 基于 Claude Agent SDK 的轻量级个人 AI 助手",
+    name="ccbot",
+    help="🐈 ccbot: 基于 Claude Agent SDK 的轻量级个人 AI 助手",
     rich_markup_mode="rich",
 )
 console = Console()
 
-_DEFAULT_CONFIG = Path.home() / ".nanobot" / "config.json"
+_DEFAULT_CONFIG = Path.home() / ".ccbot" / "config.json"
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -51,7 +51,7 @@ def version() -> None:
     """显示版本信息。"""
     console.print(
         Panel.fit(
-            f"{__logo__} nanobot v{__version__}\nPowered by Claude Agent SDK",
+            f"{__logo__} ccbot v{__version__}\nPowered by Claude Agent SDK",
             title="版本信息",
             border_style="cyan",
         )
@@ -70,7 +70,7 @@ def chat(
     from ccbot.team import AgentTeam
     from ccbot.workspace import WorkspaceManager
 
-    ws_path = Path(workspace) if workspace else Path.home() / ".nanobot" / "workspace"
+    ws_path = Path(workspace) if workspace else Path.home() / ".ccbot" / "workspace"
     ws = WorkspaceManager(ws_path)
     team = AgentTeam(AgentConfig(), ws)
 
@@ -82,7 +82,7 @@ def chat(
         else:
             console.print(
                 Panel(
-                    f"{__logo__} nanobot 交互模式\n输入 [bold]exit[/bold] 退出，[bold]/help[/bold] 查看命令",
+                    f"{__logo__} ccbot 交互模式\n输入 [bold]exit[/bold] 退出，[bold]/help[/bold] 查看命令",
                     border_style="green",
                 )
             )
@@ -98,7 +98,7 @@ def chat(
                     with console.status("[cyan]思考中...[/cyan]", spinner="dots"):
                         reply = await team.ask("cli", user_input)
 
-                    console.print("[bold blue]nanobot>[/bold blue] ", end="")
+                    console.print("[bold blue]ccbot>[/bold blue] ", end="")
                     console.print(Markdown(reply))
                     console.print()
 

@@ -1,4 +1,4 @@
-"""nanobot 配置模块。"""
+"""ccbot 配置模块。"""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import Any, Tuple, Type
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
-_DEFAULT_WORKSPACE = str(Path.home() / ".nanobot" / "workspace")
-_DEFAULT_CONFIG = Path.home() / ".nanobot" / "config.json"
+_DEFAULT_WORKSPACE = str(Path.home() / ".ccbot" / "workspace")
+_DEFAULT_CONFIG = Path.home() / ".ccbot" / "config.json"
 
 
 class AgentConfig(BaseModel):
@@ -29,7 +29,7 @@ class AgentConfig(BaseModel):
     heartbeat_interval: int = 1800  # 秒，默认 30 分钟
     heartbeat_notify_chat_id: str = ""  # 心跳结果通知目标，空则用最近活跃会话
 
-    # Worker 模式配置（供 nanobot worker 命令使用）
+    # Worker 模式配置（供 ccbot worker 命令使用）
     system_prompt: str = ""  # 直接指定 system prompt，非空时跳过 workspace 构建
     cwd: str = ""  # 工作目录覆盖，非空时替代 workspace.path
 
@@ -40,7 +40,7 @@ class A2AConfig(BaseModel):
     enabled: bool = False
     host: str = "0.0.0.0"
     port: int = 8765
-    name: str = "nanobot"
+    name: str = "ccbot"
     description: str = "Claude Agent SDK powered assistant with multi-agent orchestration"
 
 
