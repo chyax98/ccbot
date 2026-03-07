@@ -1,3 +1,5 @@
 """Agent runtime components."""
 
-__all__ = []
+from ccbot.runtime.pool import AgentPool
+
+__all__ = ["AgentPool"]
