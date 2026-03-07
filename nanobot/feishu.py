@@ -248,6 +248,35 @@ class FeishuBot:
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._running = False
+        self._bot_open_id: str = ""  # 启动后从飞书 API 获取
+
+    async def _fetch_bot_open_id(self) -> None:
+        """从飞书 API 获取 bot 自身的 open_id，用于 @mention 精准匹配。"""
+        try:
+            from lark_oapi.api.bot.v3 import GetBotInfoRequest
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self._client.bot.v3.bot.get(GetBotInfoRequest.builder().build()),
+            )
+            if response.success() and response.data and response.data.bot:
+                self._bot_open_id = response.data.bot.open_id or ""
+                logger.info("Bot open_id: {}", self._bot_open_id)
+            else:
+                logger.warning("获取 bot open_id 失败: code={} msg={}", response.code, response.msg)
+        except Exception as e:
+            logger.warning("获取 bot open_id 出错: {}", e)
+
+    def _is_bot_mentioned(self, message: Any) -> bool:
+        """检查消息中是否 @了本 bot（open_id 精准匹配）。"""
+        mentions = getattr(message, "mentions", None) or []
+        if not mentions:
+            return False
+        for m in mentions:
+            uid = getattr(m, "id", None)
+            if uid and getattr(uid, "open_id", "") == self._bot_open_id:
+                return True
+        return False
 
     def _is_allowed(self, sender_id: str) -> bool:
         """检查发送者是否在白名单内。"""
@@ -278,6 +307,9 @@ class FeishuBot:
             .app_secret(self.config.app_secret) \
             .log_level(lark.LogLevel.INFO) \
             .build()
+
+        # 获取 bot 自身 open_id（用于 require_mention 时精准匹配 @bot）
+        await self._fetch_bot_open_id()
 
         event_handler = lark.EventDispatcherHandler.builder(
             self.config.encrypt_key or "",
@@ -681,11 +713,9 @@ class FeishuBot:
                     logger.debug("DM pairing 拒绝: sender_id={}", sender_id)
                     return
             else:
-                # 群聊：require_mention 时，无 @ 则静默忽略
-                if self.config.require_mention:
-                    mentions = getattr(message, "mentions", None) or []
-                    if not mentions:
-                        return
+                # 群聊：require_mention 时，只响应 @bot 的消息
+                if self.config.require_mention and not self._is_bot_mentioned(message):
+                    return
 
             # 全局白名单（allow_from 非 * 时始终生效）
             if "*" not in self.config.allow_from and not self._is_allowed(sender_id):
