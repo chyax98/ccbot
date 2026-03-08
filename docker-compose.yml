@@ -1,8 +1,7 @@
 # ccbot Docker Compose 配置
 # 使用方法:
-#   1. 复制 config.example.json → config.json 并填入飞书凭据
-#   2. 设置 ANTHROPIC_API_KEY 环境变量
-#   3. docker compose up -d
+#   1. cp .env.example .env  （填入实际值）
+#   2. docker compose up -d
 
 services:
   ccbot:
@@ -10,26 +9,20 @@ services:
     image: ccbot:latest
     container_name: ccbot
     restart: unless-stopped
+    env_file: .env
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      # 飞书配置（也可通过挂载 config.json）
-      - NANOBOT_FEISHU__APP_ID=${FEISHU_APP_ID:-}
-      - NANOBOT_FEISHU__APP_SECRET=${FEISHU_APP_SECRET:-}
-      # Agent 配置
-      - NANOBOT_AGENT__MODEL=${MODEL:-}
       - NANOBOT_AGENT__WORKSPACE=/home/ccbot/.ccbot/workspace
     volumes:
       # 持久化 workspace（记忆、技能）
       - ccbot-workspace:/home/ccbot/.ccbot/workspace
       # 持久化去重缓存
       - ccbot-data:/home/ccbot/.ccbot/data
-      # 可选：挂载配置文件
+      # 可选：挂载配置文件（JSON 配置优先级低于环境变量）
       # - ./config.json:/home/ccbot/.ccbot/config.json:ro
     ports:
       # A2A 服务器（按需开启）
       - "${A2A_PORT:-8765}:8765"
-    # 飞书模式：ccbot run
-    command: ["run", "--config", "/home/ccbot/.ccbot/config.json"]
+    command: ["run"]
 
 volumes:
   ccbot-workspace:
