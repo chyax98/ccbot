@@ -10,7 +10,9 @@ class TestWorkerTask:
 
     def test_valid_task(self):
         """Create a valid worker task."""
-        task = WorkerTask(name="backend", task="Implement API", cwd="/workspace", model="claude-sonnet-4-6")
+        task = WorkerTask(
+            name="backend", task="Implement API", cwd="/workspace", model="claude-sonnet-4-6"
+        )
         assert task.name == "backend"
         assert task.task == "Implement API"
         assert task.cwd == "/workspace"
@@ -47,7 +49,7 @@ class TestDispatchPayload:
 
     def test_from_text_valid(self):
         """Parse valid dispatch block from text."""
-        text = '''
+        text = """
 Some explanation here.
 
 <dispatch>
@@ -58,7 +60,7 @@ Some explanation here.
 </dispatch>
 
 More text.
-'''
+"""
         payload = DispatchPayload.from_text(text)
         assert payload is not None
         assert len(payload.tasks) == 2
@@ -77,7 +79,7 @@ More text.
 
     def test_from_text_not_a_list(self):
         """Return None when dispatch content is not a list."""
-        text = "<dispatch>{\"name\": \"test\"}</dispatch>"
+        text = '<dispatch>{"name": "test"}</dispatch>'
         assert DispatchPayload.from_text(text) is None
 
     def test_worker_names(self):

@@ -1,7 +1,8 @@
 """Tests for CLIChannel."""
 
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 from ccbot.channels.cli import CLIChannel
 
@@ -41,11 +42,7 @@ class TestCLIChannel:
 
     def test_channel_custom_params(self):
         """CLIChannel should accept custom parameters."""
-        channel = CLIChannel(
-            single_message="test",
-            prompt=">>> ",
-            bot_name="TestBot"
-        )
+        channel = CLIChannel(single_message="test", prompt=">>> ", bot_name="TestBot")
         assert channel._single_message == "test"
         assert channel._prompt == ">>> "
         assert channel._bot_name == "TestBot"

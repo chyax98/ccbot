@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from typing import Awaitable, Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 from loguru import logger
 
@@ -36,8 +37,10 @@ class PerChatQueue:
     """
 
     def __init__(self) -> None:
-        self._queues: dict[str, asyncio.Queue[tuple[Callable[[], Awaitable[T]], asyncio.Future[T]]]] = defaultdict(asyncio.Queue)
-        self._workers: dict[str, asyncio.Task] = {}
+        self._queues: dict[
+            str, asyncio.Queue[tuple[Callable[[], Awaitable[Any]], asyncio.Future[Any]]]
+        ] = defaultdict(asyncio.Queue)
+        self._workers: dict[str, asyncio.Task[None]] = {}
         self._shutdown = False
 
     async def enqueue(self, chat_id: str, handler: Callable[[], Awaitable[T]]) -> T:
@@ -78,12 +81,12 @@ class PerChatQueue:
                 try:
                     # Wait for task with timeout to allow periodic cleanup
                     handler, future = await asyncio.wait_for(queue.get(), timeout=60.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # No tasks for 60s, exit worker (will restart on next enqueue)
                     break
 
                 try:
-                    result = await handler()
+                    result: Any = await handler()
                     if not future.done():
                         future.set_result(result)
                 except Exception as e:
@@ -107,7 +110,7 @@ class PerChatQueue:
         self._shutdown = True
 
         # Cancel all workers
-        for chat_id, worker in list(self._workers.items()):
+        for worker in self._workers.values():
             worker.cancel()
 
         # Wait for workers to finish
@@ -139,11 +142,7 @@ class PerChatQueue:
         Returns:
             List of chat IDs
         """
-        return [
-            chat_id
-            for chat_id, worker in self._workers.items()
-            if not worker.done()
-        ]
+        return [chat_id for chat_id, worker in self._workers.items() if not worker.done()]
 
     async def wait_for_chat(self, chat_id: str, timeout: float | None = None) -> bool:
         """Wait for all tasks in a chat to complete.
@@ -162,5 +161,5 @@ class PerChatQueue:
         try:
             await asyncio.wait_for(queue.join(), timeout=timeout)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False

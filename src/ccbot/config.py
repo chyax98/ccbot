@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Tuple, Type
+from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
@@ -22,7 +22,7 @@ class AgentConfig(BaseModel):
 
     # SDK 配置
     allowed_tools: list[str] = Field(default_factory=list)
-    mcp_servers: dict[str, dict] = Field(default_factory=dict)
+    mcp_servers: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     # Heartbeat 配置
     heartbeat_enabled: bool = True
@@ -38,6 +38,9 @@ class AgentConfig(BaseModel):
     # 说明：ClaudeSDKClient 的 session 保存在内存中，disconnect 后丢失
     # 设置较长的 idle_timeout 可保持 session 活跃，避免 memory 丢失
     # 0 表示永不自动关闭（不推荐，可能占用资源）
+
+    # 多 Agent 编排配置
+    max_workers: int = Field(default=4, ge=1, le=16)  # 最大并行 worker 数
 
 
 class A2AConfig(BaseModel):
@@ -97,14 +100,14 @@ def load_config(path: Path = _DEFAULT_CONFIG) -> Config:
 
     class _Config(Config):
         @classmethod
-        def settings_customise_sources(
+        def settings_customise_sources(  # type: ignore[override]
             cls,
-            settings_cls: Type[BaseSettings],
+            settings_cls: type[BaseSettings],
             init_settings: PydanticBaseSettingsSource,
             env_settings: PydanticBaseSettingsSource,
             **kwargs: Any,
-        ) -> Tuple[PydanticBaseSettingsSource, ...]:
-            sources: list[Any] = [init_settings, env_settings]
+        ) -> tuple[PydanticBaseSettingsSource, ...]:
+            sources: list[PydanticBaseSettingsSource] = [init_settings, env_settings]
             if json_path.exists():
                 sources.append(JsonConfigSettingsSource(settings_cls, json_file=json_path))
             return tuple(sources)

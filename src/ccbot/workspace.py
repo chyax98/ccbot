@@ -140,11 +140,14 @@ class WorkspaceManager:
 
         if _BUILTIN_SKILLS.exists():
             for d in sorted(_BUILTIN_SKILLS.iterdir()):
-                if d.is_dir() and (d / "SKILL.md").exists():
-                    if not any(s["name"] == d.name for s in skills):
-                        skills.append(
-                            {"name": d.name, "path": str(d / "SKILL.md"), "source": "builtin"}
-                        )
+                if (
+                    d.is_dir()
+                    and (d / "SKILL.md").exists()
+                    and not any(s["name"] == d.name for s in skills)
+                ):
+                    skills.append(
+                        {"name": d.name, "path": str(d / "SKILL.md"), "source": "builtin"}
+                    )
 
         return skills
 
@@ -186,7 +189,8 @@ class WorkspaceManager:
             try:
                 data = json.loads(raw)
                 if isinstance(data, dict):
-                    return data.get("nanobot", data.get("openclaw", {}))
+                    result: dict = data.get("nanobot", data.get("openclaw", {}))  # type: ignore[assignment]
+                    return result
             except Exception:
                 pass
         return fm
@@ -194,13 +198,10 @@ class WorkspaceManager:
     def _check_requirements(self, skill_meta: dict) -> bool:
         import os
 
-        for b in skill_meta.get("requires", {}).get("bins", []):
-            if not shutil.which(b):
-                return False
-        for env in skill_meta.get("requires", {}).get("env", []):
-            if not os.environ.get(env):
-                return False
-        return True
+        requires = skill_meta.get("requires", {})
+        return all(shutil.which(b) for b in requires.get("bins", [])) and all(
+            os.environ.get(env) for env in requires.get("env", [])
+        )
 
     def _get_always_skills(self) -> list[str]:
         result = []

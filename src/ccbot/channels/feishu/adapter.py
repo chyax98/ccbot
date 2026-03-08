@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import threading
 import time
@@ -181,19 +182,16 @@ class FeishuChannel(Channel):
 
                 # 每3条发送一次，或者超过8秒有积压时也发送
                 now = time.time()
-                should_send = (
-                    len(progress_buffer) >= 3 or
-                    (progress_buffer and now - last_send_time[0] > 8)
+                should_send = len(progress_buffer) >= 3 or (
+                    progress_buffer and now - last_send_time[0] > 8
                 )
 
                 if should_send:
                     batch = "\n".join(progress_buffer)
                     progress_buffer.clear()
                     last_send_time[0] = now
-                    try:
+                    with contextlib.suppress(Exception):
                         await self.send(reply_to, f"⏳ 执行中 ({total_tools[0]} 工具):\n{batch}")
-                    except Exception:
-                        pass  # 发送失败不影响主流程
 
         try:
             # 调用业务处理器
@@ -202,10 +200,8 @@ class FeishuChannel(Channel):
             # 发送剩余的进度消息
             if progress_buffer:
                 batch = "\n".join(progress_buffer)
-                try:
+                with contextlib.suppress(Exception):
                     await self.send(reply_to, f"⏳ 执行中 ({total_tools[0]} 工具):\n{batch}")
-                except Exception:
-                    pass
 
             await self.send(reply_to, reply)
             return reply
@@ -238,10 +234,10 @@ class FeishuChannel(Channel):
 
         # 使用合并后的内容（如果有）
         if event.get("_merged"):
-            return event.get("_merged_content", "")
+            return str(event.get("_merged_content", ""))
 
         if msg_type == "text":
-            return content_json.get("text", "").strip()
+            return str(content_json.get("text", "")).strip()
         elif msg_type == "post":
             return self._extract_post_content(content_json)
 
@@ -426,7 +422,9 @@ class FeishuChannel(Channel):
                     "root_id": getattr(message, "root_id", None),
                 },
                 "sender": {
-                    "sender_id": {"open_id": sender.sender_id.open_id if sender.sender_id else "unknown"},
+                    "sender_id": {
+                        "open_id": sender.sender_id.open_id if sender.sender_id else "unknown"
+                    },
                     "sender_type": sender.sender_type,
                 },
             }
@@ -468,7 +466,7 @@ class FeishuChannel(Channel):
     async def _fetch_bot_open_id(self) -> None:
         """获取 bot open_id。"""
         try:
-            import requests as _requests
+            import requests as _requests  # type: ignore[import-untyped]
             from lark_oapi.core.token.manager import TokenManager
 
             def _get() -> str:
@@ -492,7 +490,7 @@ class FeishuChannel(Channel):
         飞书 API: POST /open-apis/im/v1/chats/{chat_id}/typing
         """
         try:
-            import requests
+            import requests  # type: ignore[import-untyped]
             from lark_oapi.core.token.manager import TokenManager
 
             def _send() -> None:
@@ -511,4 +509,3 @@ class FeishuChannel(Channel):
         except Exception as e:
             # Typing 状态是可选功能，失败不影响主流程
             logger.debug("发送 typing 状态出错: {}", e)
-

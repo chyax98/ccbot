@@ -16,7 +16,9 @@ class Channel(ABC):
     """
 
     def __init__(self) -> None:
-        self._on_message_handler: Callable[[str, str, str, Callable[[str], Awaitable[None]]], Awaitable[str]] | None = None
+        self._on_message_handler: (
+            Callable[[str, str, str, Callable[[str], Awaitable[None]]], Awaitable[str]] | None
+        ) = None
         self._running = False
 
     @abstractmethod

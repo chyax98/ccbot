@@ -63,6 +63,7 @@ class AgentTeam:
     - 实时进度：worker on_progress 前缀 "[name] "，由上层聚合为状态看板
     - 容错：单个 worker 失败不影响其他 worker，结果中标记 ❌
     - 结构化 Dispatch：使用 Pydantic 模型替代文本解析
+    - 并发控制：max_workers 限制并行 worker 数量
 
     用法（等同 NanobotAgent.ask）：
         team = AgentTeam(config, workspace)
@@ -103,7 +104,12 @@ class AgentTeam:
         if dispatch is None:
             return supervisor_reply  # Supervisor 直接处理了，无需派发
 
-        logger.info("[{}] Supervisor 派发 {} 个 worker: {}", chat_id, len(dispatch.tasks), dispatch.worker_names)
+        logger.info(
+            "[{}] Supervisor 派发 {} 个 worker: {}",
+            chat_id,
+            len(dispatch.tasks),
+            dispatch.worker_names,
+        )
         if on_progress:
             await on_progress(f"📋 派发任务: {dispatch.worker_names}")
 
@@ -124,10 +130,15 @@ class AgentTeam:
         dispatch: DispatchPayload,
         on_progress: Callable[[str], Awaitable[None]] | None,
     ) -> DispatchResult:
-        """并行执行所有 worker 任务，返回结构化结果。"""
+        """并行执行所有 worker 任务（受 max_workers 限制），返回结构化结果。"""
+        semaphore = asyncio.Semaphore(self._config.max_workers)
 
-        async def run_one(task_def) -> WorkerResult:
-            """执行单个 worker 任务。"""
+        async def run_one(task_def: WorkerResult | object) -> WorkerResult:
+            """执行单个 worker 任务，带并发控制和完整生命周期管理。"""
+            from ccbot.models import WorkerTask
+
+            assert isinstance(task_def, WorkerTask)
+
             cfg = AgentConfig(
                 model=task_def.model or self._config.model or "",
                 cwd=str(task_def.cwd),
@@ -150,31 +161,38 @@ class AgentTeam:
                 task_def.model or "default",
             )
 
-            try:
-                result_text = await worker.ask(
-                    f"{chat_id}:{task_def.name}", task_def.task, on_progress=worker_progress
-                )
-                logger.info("[{}] worker 完成 name={} ({} chars)", chat_id, task_def.name, len(result_text))
+            async with semaphore:
+                await worker.start()
+                try:
+                    result_text = await worker.ask(
+                        f"{chat_id}:{task_def.name}", task_def.task, on_progress=worker_progress
+                    )
+                    logger.info(
+                        "[{}] worker 完成 name={} ({} chars)",
+                        chat_id,
+                        task_def.name,
+                        len(result_text),
+                    )
 
-                # 发送 worker 完成的 milestone 消息
-                if on_progress:
-                    await on_progress(f"✅ {task_def.name} 完成")
+                    if on_progress:
+                        await on_progress(f"✅ {task_def.name} 完成")
 
-                return WorkerResult.from_result(task_def.name, result_text)
-            except Exception as e:
-                logger.error("[{}] worker 失败 name={}: {}", chat_id, task_def.name, e)
+                    return WorkerResult.from_result(task_def.name, result_text)
+                except Exception as e:
+                    logger.error("[{}] worker 失败 name={}: {}", chat_id, task_def.name, e)
 
-                # 发送 worker 失败的 milestone 消息
-                if on_progress:
-                    error_msg = str(e)[:80]
-                    await on_progress(f"❌ {task_def.name} 失败: {error_msg}")
+                    if on_progress:
+                        error_msg = str(e)[:80]
+                        await on_progress(f"❌ {task_def.name} 失败: {error_msg}")
 
-                return WorkerResult.from_exception(task_def.name, e)
+                    return WorkerResult.from_exception(task_def.name, e)
+                finally:
+                    await worker.stop()
 
-        # 并行执行所有 worker
+        # 并行执行所有 worker（受 semaphore 限制并发数）
         worker_results = await asyncio.gather(
             *[run_one(task) for task in dispatch.tasks],
-            return_exceptions=False,  # 我们在 run_one 内部捕获异常
+            return_exceptions=False,  # 异常在 run_one 内部捕获
         )
 
-        return DispatchResult(workers=worker_results)
+        return DispatchResult(workers=list(worker_results))

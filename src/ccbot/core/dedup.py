@@ -6,6 +6,7 @@ Reference: OpenClaw extensions/feishu/src/dedup.ts
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 from collections import OrderedDict
@@ -42,8 +43,11 @@ class DedupCache:
         self._cache: OrderedDict[str, float] = OrderedDict()
         self._ttl_ms = ttl_ms
         self._max_size = max_size
-        self._persist_task: asyncio.Task | None = None
+        self._persist_task: asyncio.Task[None] | None = None
         self._dirty = False
+        # 记录最后一次 schedule_persist 的参数，供 stop() 时使用
+        self._persist_base_path: str | Path | None = None
+        self._persist_namespace: str = "global"
 
     def check(self, key: str) -> bool:
         """Check if key exists in cache. If not, add it.
@@ -115,10 +119,7 @@ class DedupCache:
         if now is None:
             now = time.time() * 1000
 
-        expired = [
-            key for key, timestamp in self._cache.items()
-            if now - timestamp >= self._ttl_ms
-        ]
+        expired = [key for key, timestamp in self._cache.items() if now - timestamp >= self._ttl_ms]
 
         for key in expired:
             del self._cache[key]
@@ -182,9 +183,7 @@ class DedupCache:
 
         try:
             loop = asyncio.get_running_loop()
-            text = await loop.run_in_executor(
-                None, lambda: file_path.read_text(encoding="utf-8")
-            )
+            text = await loop.run_in_executor(None, lambda: file_path.read_text(encoding="utf-8"))
             data = json.loads(text)
 
             # Validate version
@@ -230,6 +229,10 @@ class DedupCache:
         if self._persist_task is not None:
             return
 
+        # 记录路径以便 stop() 时最终持久化
+        self._persist_base_path = base_path
+        self._persist_namespace = namespace
+
         async def _persist_loop() -> None:
             while True:
                 try:
@@ -246,15 +249,13 @@ class DedupCache:
         """Stop scheduled persistence and flush cache."""
         if self._persist_task is not None:
             self._persist_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._persist_task
-            except asyncio.CancelledError:
-                pass
             self._persist_task = None
 
-        # Final persist
-        if self._dirty:
-            await self.persist("~/.ccbot/dedup")
+        # 使用记录的路径进行最终持久化
+        if self._dirty and self._persist_base_path is not None:
+            await self.persist(self._persist_base_path, self._persist_namespace)
 
     def __len__(self) -> int:
         """Return number of entries in cache."""

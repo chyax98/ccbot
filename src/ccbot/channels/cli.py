@@ -6,8 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from loguru import logger
@@ -84,9 +82,7 @@ class CLIChannel(Channel):
         async def progress_cb(msg: str) -> None:
             print(f"[{msg}]")
 
-        reply = await self._handle_message(
-            message, self._chat_id, self._sender_id, progress_cb
-        )
+        reply = await self._handle_message(message, self._chat_id, self._sender_id, progress_cb)
         print(f"{self._bot_name}: {reply}")
 
     async def _interactive_loop(self) -> None:
@@ -98,9 +94,7 @@ class CLIChannel(Channel):
             try:
                 # 使用 run_in_executor 避免阻塞事件循环
                 loop = asyncio.get_running_loop()
-                user_input = await loop.run_in_executor(
-                    None, lambda: input(self._prompt)
-                )
+                user_input = await loop.run_in_executor(None, lambda: input(self._prompt))
 
                 user_input = user_input.strip()
                 if not user_input:

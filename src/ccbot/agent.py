@@ -106,12 +106,7 @@ class NanobotAgent:
 
         # /stop 不进锁，直接中断当前正在运行的 query
         if cmd == "/stop":
-            client = self._pool._clients.get(chat_id)  # type: ignore
-            if client:
-                try:
-                    await client.interrupt()
-                except Exception:
-                    pass
+            await self._pool.interrupt(chat_id)
             return "⏹ Stopped."
 
         logger.info("[{}] ← {}", chat_id, prompt[:120])
@@ -164,7 +159,12 @@ class NanobotAgent:
                                     file_path = tool_input.get("file_path", "")
                                     logger.info("[{}] 📖 Read {}", chat_id, file_path)
                                 else:
-                                    logger.info("[{}] ⚡ {} | {}", chat_id, block.name, str(tool_input)[:200])
+                                    logger.info(
+                                        "[{}] ⚡ {} | {}",
+                                        chat_id,
+                                        block.name,
+                                        str(tool_input)[:200],
+                                    )
 
                     elif isinstance(msg, SystemMessage):
                         logger.debug("[{}] sys subtype={}", chat_id, msg.subtype)

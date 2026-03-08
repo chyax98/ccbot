@@ -1,15 +1,18 @@
 """Tests for FeishuChannel._extract_post_content."""
 
+from typing import ClassVar
+
 from ccbot.channels.feishu.adapter import FeishuChannel
 
 
 class MockConfig:
     """Mock config for testing."""
+
     app_id = "test"
     app_secret = "test"
     encrypt_key = ""
     verification_token = ""
-    allow_from = ["*"]
+    allow_from: ClassVar[list[str]] = ["*"]
     react_emoji = "THUMBSUP"
     require_mention = False
     progress_mode = "edit"

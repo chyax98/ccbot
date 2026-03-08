@@ -14,10 +14,10 @@ class TestDebouncer:
     async def test_single_item_debounce(self):
         """Single item should be flushed after delay."""
         flushed = []
-        
+
         async def handler(items):
             flushed.append(items)
-        
+
         # Use same key for all items
         debouncer = Debouncer[str](delay_ms=50, key_extractor=lambda x: "same_key")
         debouncer.on_flush(handler)
@@ -33,10 +33,10 @@ class TestDebouncer:
     async def test_merge_multiple_items(self):
         """Multiple items within delay should be merged."""
         flushed = []
-        
+
         async def handler(items):
             flushed.append(items)
-        
+
         # Use same key for all items
         debouncer = Debouncer[str](delay_ms=200, key_extractor=lambda x: "same_key")
         debouncer.on_flush(handler)
@@ -48,7 +48,7 @@ class TestDebouncer:
 
         # Wait for debounce delay
         await asyncio.sleep(0.3)
-        
+
         assert len(flushed) == 1
         assert flushed[0] == ["A", "B", "C"]
 
@@ -56,10 +56,10 @@ class TestDebouncer:
     async def test_control_command_bypass(self):
         """Control commands should bypass debounce."""
         flushed = []
-        
+
         async def handler(items):
             flushed.append(items)
-        
+
         debouncer = Debouncer[str](delay_ms=100, key_extractor=lambda x: "same_key")
         debouncer.on_flush(handler)
 

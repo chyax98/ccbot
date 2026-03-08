@@ -9,8 +9,9 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from loguru import logger
 
@@ -74,7 +75,7 @@ class Debouncer(Generic[T]):
         self._flush_handler: Callable[[list[T]], Awaitable[None]] | None = None
 
     @staticmethod
-    def _default_is_control(item: str) -> bool:
+    def _default_is_control(item: object) -> bool:
         """Default control command detection."""
         text = str(item).strip().lower()
         return any(text.startswith(cmd) for cmd in Debouncer.CONTROL_COMMANDS)
@@ -195,6 +196,7 @@ class Debouncer(Generic[T]):
 
 
 # Feishu-specific helpers
+
 
 def extract_feishu_debounce_key(event: dict) -> str:
     """Extract debounce key from Feishu event.

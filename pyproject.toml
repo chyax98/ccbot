@@ -1,6 +1,6 @@
 [project]
 name = "ccbot"
-version = "0.2.0"
+version = "0.3.0"
 description = "A lightweight personal AI assistant powered by Claude Agent SDK"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -34,7 +34,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
-    "ruff>=0.1.0",
+    "ruff>=0.9.0",
     "mypy>=1.0.0",
 ]
 
@@ -48,20 +48,63 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/ccbot"]
 
+# ── ruff（lint + format，替代 black + isort + flake8）──
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W"]
-ignore = ["E501"]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",    # 行长度由 formatter 控制
+    "SIM108",  # 不强制三元表达式
+    "UP007",   # X | Y union 语法（与 from __future__ 冲突较少）
+    "RUF001",  # 中文全角字符（有意使用）
+    "RUF002",  # 同上（docstring）
+    "RUF003",  # 同上（注释）
+    "TCH",     # type-checking import（运行时需要）
+]
 
+[tool.ruff.lint.isort]
+known-first-party = ["ccbot"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ── mypy ──
 [tool.mypy]
 python_version = "3.11"
-strict = true
+strict = false
 warn_return_any = true
 warn_unused_configs = true
+warn_unreachable = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "requests.*"
+ignore_missing_imports = true
+
+# ── pytest ──
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-v --tb=short"

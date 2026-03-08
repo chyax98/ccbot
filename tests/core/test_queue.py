@@ -60,6 +60,7 @@ class TestPerChatQueue:
                 execution_times[chat_id] = asyncio.get_event_loop().time()
                 await asyncio.sleep(0.1)
                 return chat_id
+
             return handler
 
         start_time = asyncio.get_event_loop().time()

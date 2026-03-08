@@ -149,12 +149,12 @@ async def test_ask_returns_assistant_text(agent: NanobotAgent) -> None:
 async def test_ask_reuses_session_for_same_chat_id(agent: NanobotAgent) -> None:
     mock_client = _make_mock_client("ok")
 
-    with patch("claude_agent_sdk.ClaudeSDKClient", return_value=mock_client) as MockCls:
+    with patch("claude_agent_sdk.ClaudeSDKClient", return_value=mock_client) as mock_cls:
         await agent.ask("chat1", "first")
         await agent.ask("chat1", "second")
 
     # ClaudeSDKClient constructed only once
-    assert MockCls.call_count == 1
+    assert mock_cls.call_count == 1
     assert mock_client.query.await_count == 2
 
 

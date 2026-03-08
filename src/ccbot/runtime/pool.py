@@ -2,15 +2,16 @@
 
 特性：
 - 按 chat_id 缓存和复用 client
-- 空闲超时自动释放（默认 30 分钟）
+- 空闲超时自动释放
 - 优雅关闭时保存历史记录
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -19,6 +20,9 @@ from ccbot.workspace import WorkspaceManager
 
 if TYPE_CHECKING:
     from claude_agent_sdk import ClaudeSDKClient
+
+# 清理循环检查间隔（秒）
+_CLEANUP_CHECK_INTERVAL = 60
 
 
 class AgentPool:
@@ -45,7 +49,7 @@ class AgentPool:
         config: AgentConfig,
         workspace: WorkspaceManager | None = None,
         extra_system_prompt: str = "",
-        idle_timeout: int = 1800,
+        idle_timeout: int | None = None,
     ) -> None:
         """初始化 AgentPool。
 
@@ -53,17 +57,17 @@ class AgentPool:
             config: Agent 配置
             workspace: 工作空间管理器
             extra_system_prompt: 额外的 system prompt（如 Supervisor/Worker 提示）
-            idle_timeout: 空闲超时秒数（默认 30 分钟）
+            idle_timeout: 空闲超时秒数，None 时使用 config.idle_timeout
         """
         self._config = config
         self._workspace = workspace
         self._extra_system_prompt = extra_system_prompt
-        self._idle_timeout = idle_timeout
+        self._idle_timeout = idle_timeout if idle_timeout is not None else config.idle_timeout
 
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._last_used: dict[str, float] = {}
         self._locks: dict[str, asyncio.Lock] = {}
-        self._cleanup_task: asyncio.Task | None = None
+        self._cleanup_task: asyncio.Task[None] | None = None
         self._running = False
 
     async def start(self) -> None:
@@ -85,10 +89,8 @@ class AgentPool:
         # 停止清理任务
         if self._cleanup_task:
             self._cleanup_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cleanup_task
-            except asyncio.CancelledError:
-                pass
             self._cleanup_task = None
 
         # 关闭所有 client
@@ -138,6 +140,25 @@ class AgentPool:
             except Exception as e:
                 logger.warning("关闭 client 出错: chat_id={} error={}", chat_id, e)
 
+    async def interrupt(self, chat_id: str) -> bool:
+        """中断指定 chat_id 正在执行的查询。
+
+        Args:
+            chat_id: 会话唯一标识
+
+        Returns:
+            True 如果成功中断，False 如果 client 不存在
+        """
+        client = self._clients.get(chat_id)
+        if not client:
+            return False
+        try:
+            await client.interrupt()
+            return True
+        except Exception as e:
+            logger.warning("中断 client 出错: chat_id={} error={}", chat_id, e)
+            return False
+
     def get_stats(self) -> dict[str, int | float]:
         """获取池统计信息。
 
@@ -152,7 +173,7 @@ class AgentPool:
             "idle_timeout": self._idle_timeout,
         }
 
-    async def _create_client(self, chat_id: str):
+    async def _create_client(self, chat_id: str) -> ClaudeSDKClient:
         """创建新的 ClaudeSDKClient。"""
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
@@ -170,7 +191,7 @@ class AgentPool:
 
         cwd = self._config.cwd or (str(self._workspace.path) if self._workspace else ".")
 
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "system_prompt": system_prompt,
             "cwd": cwd,
             "permission_mode": "bypassPermissions",
@@ -193,7 +214,7 @@ class AgentPool:
         """后台任务：定期清理空闲 client。"""
         while self._running:
             try:
-                await asyncio.sleep(60)  # 每分钟检查一次
+                await asyncio.sleep(_CLEANUP_CHECK_INTERVAL)
                 await self._cleanup_idle()
             except asyncio.CancelledError:
                 break
