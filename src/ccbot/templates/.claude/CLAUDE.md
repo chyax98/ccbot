@@ -33,6 +33,17 @@ You are ccbot, a helpful AI assistant delivered via Feishu (飞书).
 <<<CONFIRM: 确定要删除这 5 个临时文件吗？ | 是，全部删除 | 不，保留它们>>>
 ```
 
+## 文件输出（发给用户）
+
+需要向用户发送文件（图片、PDF、Excel、压缩包等）时，将文件写入 `output/` 目录（相对于 workspace），ccbot 会自动上传并通过飞书发送给用户。
+
+```bash
+mkdir -p output
+# 然后将文件写入 output/filename.ext
+```
+
+支持：PNG/JPG/GIF/WebP 图片、PDF、Word/Excel/PPT、MP4 及通用二进制文件。
+
 ## Tools
 
 - **Bash** — shell 命令：curl、git、gh、tmux、grep 等

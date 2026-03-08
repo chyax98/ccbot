@@ -30,6 +30,24 @@ except ImportError:
     pass
 
 
+# 图片扩展名 → 走 im.v1.image 上传
+_IMAGE_EXTS: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
+
+# 文件扩展名 → Feishu file_type 值（其余用 "stream"）
+_EXT_TO_FILE_TYPE: dict[str, str] = {
+    ".pdf": "pdf",
+    ".doc": "doc",
+    ".docx": "doc",
+    ".xls": "xls",
+    ".xlsx": "xls",
+    ".ppt": "ppt",
+    ".pptx": "ppt",
+    ".mp4": "mp4",
+    ".opus": "opus",
+    ".m4a": "opus",
+}
+
+
 class FeishuChannel(Channel):
     """飞书通道，集成 Inbound Pipeline。
 
@@ -42,9 +60,10 @@ class FeishuChannel(Channel):
         config: 飞书配置
     """
 
-    def __init__(self, config: FeishuConfig) -> None:
+    def __init__(self, config: FeishuConfig, *, output_dir: Path | None = None) -> None:
         super().__init__()
         self.config = config
+        self._output_dir = output_dir
 
         # Pipeline 组件
         self._dedup = DedupCache(ttl_ms=24 * 60 * 60 * 1000, max_size=1000)
@@ -166,6 +185,8 @@ class FeishuChannel(Channel):
 
         logger.info("处理消息: sender={} chat={} content={}", sender_id, chat_id, content[:60])
 
+        query_start = time.time()  # 用于过滤 output/ 里的旧文件
+
         # 添加表情表示正在处理
         reaction_id = await self._add_reaction(message_id, self.config.react_emoji)
 
@@ -256,9 +277,11 @@ class FeishuChannel(Channel):
                             reply_to_message_id=reply_msg_id,
                         )
                 await self.send(reply_to, follow_reply, reply_to_message_id=reply_msg_id)
+                await self._upload_and_send_outputs(reply_to, reply_msg_id, since=query_start)
                 return follow_reply
             else:
                 await self.send(reply_to, reply, reply_to_message_id=reply_msg_id)
+                await self._upload_and_send_outputs(reply_to, reply_msg_id, since=query_start)
                 return reply
 
         except Exception as e:
@@ -683,6 +706,141 @@ class FeishuChannel(Channel):
                 logger.error("发送确认卡片失败: code={} msg={}", response.code, response.msg)
         except Exception as e:
             logger.error("发送确认卡片出错: {}", e)
+
+    async def _upload_and_send_outputs(
+        self,
+        reply_to: str,
+        reply_msg_id: str | None,
+        since: float,
+    ) -> None:
+        """扫描 output 目录，上传本次查询期间产生的文件并发送给用户。
+
+        Args:
+            reply_to: 目标 ID（chat_id 或 open_id）
+            reply_msg_id: 用于 thread 回复的原始消息 ID
+            since: 只上传 mtime >= since 的文件（避免发送旧文件）
+        """
+        if not self._output_dir or not self._client:
+            return
+        if not self._output_dir.is_dir():
+            return
+
+        # 按修改时间升序，只取本次查询之后的文件
+        new_files = sorted(
+            (f for f in self._output_dir.iterdir() if f.is_file() and f.stat().st_mtime >= since),
+            key=lambda f: f.stat().st_mtime,
+        )
+        if not new_files:
+            return
+
+        loop = asyncio.get_running_loop()
+        for path in new_files:
+            try:
+                result = await loop.run_in_executor(None, self._upload_file_sync, path)
+                if result is None:
+                    continue
+                feishu_msg_type, feishu_content = result
+                await self._send_file_message(
+                    reply_to, reply_msg_id, feishu_msg_type, feishu_content
+                )
+                path.unlink(missing_ok=True)
+                logger.info("文件已发送并清理: {}", path.name)
+            except Exception as e:
+                logger.error("上传/发送文件失败: {} {}", path.name, e)
+
+    def _upload_file_sync(self, path: Path) -> tuple[str, str] | None:
+        """同步上传单个文件（在 executor 中运行），返回 (msg_type, content_json)。"""
+        ext = path.suffix.lower()
+
+        if ext in _IMAGE_EXTS:
+            from lark_oapi.api.im.v1 import CreateImageRequest, CreateImageRequestBody
+
+            with open(path, "rb") as f:
+                request = (
+                    CreateImageRequest.builder()
+                    .request_body(
+                        CreateImageRequestBody.builder().image_type("message").image(f).build()
+                    )
+                    .build()
+                )
+            response = self._client.im.v1.image.create(request)
+            if not response.success():
+                logger.error("上传图片失败: code={} msg={}", response.code, response.msg)
+                return None
+            return "image", json.dumps({"image_key": response.data.image_key}, ensure_ascii=False)
+
+        else:
+            file_type = _EXT_TO_FILE_TYPE.get(ext, "stream")
+            from lark_oapi.api.im.v1 import CreateFileRequest, CreateFileRequestBody
+
+            with open(path, "rb") as f:
+                request = (
+                    CreateFileRequest.builder()
+                    .request_body(
+                        CreateFileRequestBody.builder()
+                        .file_type(file_type)
+                        .file_name(path.name)
+                        .file(f)
+                        .build()
+                    )
+                    .build()
+                )
+            response = self._client.im.v1.file.create(request)
+            if not response.success():
+                logger.error("上传文件失败: code={} msg={}", response.code, response.msg)
+                return None
+            return "file", json.dumps({"file_key": response.data.file_key}, ensure_ascii=False)
+
+    async def _send_file_message(
+        self,
+        target: str,
+        reply_to_message_id: str | None,
+        feishu_msg_type: str,
+        feishu_content: str,
+    ) -> None:
+        """发送文件/图片消息（thread 回复或直接发送）。"""
+        loop = asyncio.get_running_loop()
+
+        if reply_to_message_id:
+            from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
+
+            request = (
+                ReplyMessageRequest.builder()
+                .message_id(reply_to_message_id)
+                .request_body(
+                    ReplyMessageRequestBody.builder()
+                    .content(feishu_content)
+                    .msg_type(feishu_msg_type)
+                    .reply_in_thread(True)
+                    .build()
+                )
+                .build()
+            )
+            response = await loop.run_in_executor(
+                None, self._client.im.v1.message.reply, request
+            )
+        else:
+            from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+
+            receive_id_type = "chat_id" if target.startswith("oc_") else "open_id"
+            request = (
+                CreateMessageRequest.builder()
+                .receive_id_type(receive_id_type)
+                .request_body(
+                    CreateMessageRequestBody.builder()
+                    .receive_id(target)
+                    .msg_type(feishu_msg_type)
+                    .content(feishu_content)
+                    .build()
+                )
+                .build()
+            )
+            response = await loop.run_in_executor(
+                None, self._client.im.v1.message.create, request
+            )
+
+        if not response.success():
+            logger.error("发送文件消息失败: code={} msg={}", response.code, response.msg)
 
     def _on_card_action_sync(self, data: Any) -> Any:
         """卡片按钮回调（WS 同步线程），解析 confirm_id 并唤醒等待的 Future。"""

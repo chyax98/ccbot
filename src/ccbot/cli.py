@@ -186,7 +186,7 @@ def run(
     async def on_message(text: str, chat_id: str, sender_id: str, send_progress) -> str:
         return await team.ask(chat_id, text, on_progress=send_progress)
 
-    channel = FeishuChannel(config.feishu)
+    channel = FeishuChannel(config.feishu, output_dir=workspace.output_dir)
     channel.on_message(on_message)
 
     async def heartbeat_execute(prompt: str) -> str:
