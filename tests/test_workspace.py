@@ -30,10 +30,9 @@ def test_templates_not_overwritten(ws: WorkspaceManager) -> None:
     # 已存在的文件不应被覆盖
     settings = ws.path / ".claude" / "settings.json"
     if settings.exists():
-        original = settings.read_text()
         settings.write_text("custom content")
         # 重新初始化
-        ws2 = WorkspaceManager(ws.path)
+        WorkspaceManager(ws.path)
         assert settings.read_text() == "custom content", "existing files should not be overwritten"
 
 

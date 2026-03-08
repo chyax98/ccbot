@@ -13,6 +13,7 @@ Supervisor 每次处理消息前注入当前 Worker 状态。
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 from collections.abc import Awaitable, Callable
 
@@ -20,52 +21,17 @@ from loguru import logger
 
 from ccbot.agent import CCBotAgent
 from ccbot.config import AgentConfig
-from ccbot.models import DispatchPayload, DispatchResult, WorkerResult, WorkerTask
+from ccbot.memory import MemoryStore
+from ccbot.models import (
+    DispatchPayload,
+    DispatchResult,
+    SupervisorResponse,
+    WorkerResult,
+    WorkerTask,
+)
+from ccbot.runtime.profiles import RuntimeRole
 from ccbot.runtime.worker_pool import WorkerPool
 from ccbot.workspace import WorkspaceManager
-
-# Supervisor 额外注入的多 Agent 调度说明
-_SUPERVISOR_PROMPT = """\
-## 你的角色：项目总控
-
-你是整个任务的负责人，负责把控全局。你可以：
-- 自己搜索、调研、读文件、分析问题——这是理解任务的基础
-- 直接处理简单问答，无需派发
-
-**当任务适合并行或需要专项执行时**（如同时开发多个模块、前后端分离、多步骤独立子任务），
-输出 dispatch 计划交给 Worker 执行：
-
-<dispatch>
-[
-  {
-    "name": "worker 唯一名称（如 frontend / backend / reviewer）",
-    "cwd": "/绝对路径/工作目录",
-    "task": "详细任务描述",
-    "model": "sonnet",
-    "max_turns": 30
-  }
-]
-</dispatch>
-
-规则：
-- name 在本次 dispatch 中唯一，用于日志和进度显示
-- cwd 必须是绝对路径；同一 repo 内各 worker 操作不重叠的文件/目录
-- model / max_turns 可省略（默认继承配置）
-- dispatch 块之外可以写给用户看的说明，不要在 dispatch 块内加注释
-- 收到 worker 结果后，综合成清晰的汇报返回给用户
-
-## Worker 管理
-
-Worker 在 dispatch 后保持存活，可以接收后续任务：
-- 如需向已有 Worker 追加任务，使用**相同的 name**
-- 新 name 会创建新 Worker
-- 活跃 Worker 列表会在每次对话时提供给你
-
-典型用法：
-1. 首次派发：创建 Workers 并分配初始任务
-2. 用户说"frontend 再看看性能"：用相同 name="frontend" 追加任务
-3. 用户问"现在谁在跑"：直接查看活跃 Worker 列表回答
-"""
 
 
 class AgentTeam:
@@ -88,8 +54,16 @@ class AgentTeam:
 
     def __init__(self, config: AgentConfig, workspace: WorkspaceManager) -> None:
         self._config = config
-        self._supervisor = CCBotAgent(config, workspace, extra_system_prompt=_SUPERVISOR_PROMPT)
+        self._memory_store = MemoryStore(workspace.path, max_short_term_turns=config.short_term_memory_turns)
+        self._supervisor = CCBotAgent(
+            config,
+            workspace,
+            output_format=SupervisorResponse.output_format(),
+            role=RuntimeRole.SUPERVISOR,
+            memory_store=self._memory_store,
+        )
         self._worker_pool = WorkerPool(config)
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     async def start(self) -> None:
         """启动 AgentTeam，启动 Supervisor 和 WorkerPool。"""
@@ -97,7 +71,13 @@ class AgentTeam:
         await self._worker_pool.start()
 
     async def stop(self) -> None:
-        """停止 AgentTeam，关闭 WorkerPool 和 Supervisor。"""
+        """停止 AgentTeam，关闭 WorkerPool、后台任务和 Supervisor。"""
+        if self._background_tasks:
+            for task in self._background_tasks:
+                task.cancel()
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+
         await self._worker_pool.stop()
         await self._supervisor.stop()
 
@@ -109,6 +89,19 @@ class AgentTeam:
     def worker_pool(self) -> WorkerPool:
         """暴露 WorkerPool 供外部查询状态。"""
         return self._worker_pool
+
+    def _track_background_task(self, task: asyncio.Task[None]) -> None:
+        """跟踪后台任务，避免异步派发任务被垃圾回收或在 stop 时泄漏。"""
+        self._background_tasks.add(task)
+
+        def _cleanup(done_task: asyncio.Task[None]) -> None:
+            self._background_tasks.discard(done_task)
+            with contextlib.suppress(asyncio.CancelledError):
+                exc = done_task.exception()
+                if exc is not None:
+                    logger.error("后台 worker 任务异常退出: {}", exc)
+
+        task.add_done_callback(_cleanup)
 
     async def ask(
         self,
@@ -127,6 +120,10 @@ class AgentTeam:
                 后台执行 Workers，每完成一个立即回调，ask() 立即返回派发摘要。
                 不提供时使用同步模式：等待全部完成 + Supervisor 综合。
         """
+        control_reply = await self._handle_control_command(chat_id, prompt)
+        if control_reply is not None:
+            return control_reply
+
         # Step 1: 注入 Worker 状态到 prompt
         worker_status = self._worker_pool.format_status()
         enhanced_prompt = prompt
@@ -137,14 +134,26 @@ class AgentTeam:
         if on_progress:
             await on_progress("📋 分析任务中...")
 
-        supervisor_reply = await self._supervisor.ask(
+        supervisor_result = await self._supervisor.ask_run(
             chat_id, enhanced_prompt, on_progress=on_progress
         )
+        supervisor_reply = supervisor_result.text
 
-        # Step 3: 解析 dispatch 计划
-        dispatch = DispatchPayload.from_text(supervisor_reply)
-        if dispatch is None:
-            return supervisor_reply  # Supervisor 直接处理了，无需派发
+        # Step 3: 优先解析 structured_output，其次回退到旧版 <dispatch> 文本协议
+        structured_response = SupervisorResponse.from_structured_output(
+            supervisor_result.structured_output
+        )
+        if structured_response is None:
+            dispatch = DispatchPayload.from_text(supervisor_reply)
+            if dispatch is None:
+                return supervisor_reply  # Supervisor 直接处理了，无需派发
+            user_message = _extract_pre_dispatch_text(supervisor_reply)
+        elif structured_response.mode == "respond":
+            return structured_response.user_message or supervisor_reply
+        else:
+            dispatch = structured_response.dispatch_payload
+            assert dispatch is not None
+            user_message = structured_response.user_message.strip()
 
         logger.info(
             "[{}] Supervisor 派发 {} 个 worker: {}",
@@ -157,10 +166,12 @@ class AgentTeam:
 
         if on_worker_result is not None:
             # 异步模式：后台启动 Workers，立即返回派发摘要
-            pre_text = _extract_pre_dispatch_text(supervisor_reply)
-            asyncio.create_task(
-                self._run_workers_async(chat_id, dispatch, on_progress, on_worker_result)
+            pre_text = user_message or _extract_pre_dispatch_text(supervisor_reply)
+            task = asyncio.create_task(
+                self._run_workers_async(chat_id, dispatch, on_progress, on_worker_result),
+                name=f"dispatch-{chat_id}",
             )
+            self._track_background_task(task)
             return (
                 f"{pre_text}\n\n"
                 f"📋 已派发 {len(dispatch.tasks)} 个任务: {dispatch.worker_names}"
@@ -172,7 +183,15 @@ class AgentTeam:
             logger.info("[{}] 所有 worker 完成，请求 Supervisor 综合", chat_id)
             if on_progress:
                 await on_progress("🎯 综合结果中...")
-            return await self._supervisor.ask(chat_id, synthesis, on_progress=on_progress)
+            synthesis_result = await self._supervisor.ask_run(
+                chat_id, synthesis, on_progress=on_progress
+            )
+            synthesis_response = SupervisorResponse.from_structured_output(
+                synthesis_result.structured_output
+            )
+            if synthesis_response is not None and synthesis_response.mode == "respond":
+                return synthesis_response.user_message or synthesis_result.text
+            return synthesis_result.text
 
     async def _run_workers(
         self,
@@ -271,10 +290,48 @@ class AgentTeam:
 
         except Exception as e:
             logger.exception("[{}] 异步 dispatch 执行失败: {}", chat_id, e)
-            try:
+            with contextlib.suppress(Exception):
                 await on_worker_result("❌ 系统错误", f"异步派发执行失败: {e}")
-            except Exception:
-                pass
+
+    async def _handle_control_command(self, chat_id: str, prompt: str) -> str | None:
+        """处理不需要 Supervisor 推理的 worker 控制命令。"""
+        command = prompt.strip()
+        lowered = command.lower()
+
+        if lowered == "/workers":
+            status = self._worker_pool.format_status()
+            return status or "当前没有活跃 Worker。"
+
+        if lowered.startswith("/worker kill "):
+            name = command.split(maxsplit=2)[2].strip()
+            if not name:
+                return "用法: /worker kill <name>"
+            if not self._worker_pool.has_worker(name):
+                return f"Worker '{name}' 不存在。"
+            await self._worker_pool.kill(name)
+            return f"已销毁 Worker: {name}"
+
+        if lowered.startswith("/worker stop "):
+            name = command.split(maxsplit=2)[2].strip()
+            if not name:
+                return "用法: /worker stop <name>"
+            if not self._worker_pool.has_worker(name):
+                return f"Worker '{name}' 不存在。"
+            interrupted = await self._worker_pool.interrupt(name)
+            if interrupted:
+                return f"已中断 Worker: {name}"
+            return f"Worker '{name}' 当前无法中断。"
+
+        if lowered.startswith("/memory show"):
+            memory_prompt = self._memory_store.build_memory_prompt(chat_id).strip()
+            return memory_prompt or "当前没有持久化记忆。"
+
+        if lowered.startswith("/memory clear"):
+            self._memory_store.clear_conversation(chat_id)
+            await self._supervisor._close_session(chat_id)
+            return "已清空当前会话的本地记忆与 runtime session。"
+
+        return None
 
 
 def _extract_pre_dispatch_text(text: str) -> str:

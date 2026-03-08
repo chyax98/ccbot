@@ -37,6 +37,12 @@ dev = [
     "ruff>=0.9.0",
     "mypy>=1.0.0",
 ]
+observability = [
+    "langsmith[claude-agent-sdk]",
+]
+observability-otel = [
+    "langsmith[claude-agent-sdk,otel]",
+]
 
 # uv sync --dev 使用 dependency-groups 而非 optional-dependencies
 [dependency-groups]
@@ -45,6 +51,12 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "ruff>=0.9.0",
     "mypy>=1.0.0",
+]
+observability = [
+    "langsmith[claude-agent-sdk]",
+]
+observability-otel = [
+    "langsmith[claude-agent-sdk,otel]",
 ]
 
 [project.scripts]

@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -23,30 +24,28 @@ if TYPE_CHECKING:
     from claude_agent_sdk import ClaudeSDKClient
 
 
-async def query_and_collect(
+@dataclass
+class AgentRunResult:
+    text: str
+    structured_output: Any = None
+    runtime_session_id: str = ""
+
+
+async def query_and_collect_result(
     client: ClaudeSDKClient,
     prompt: str,
     *,
     session_id: str = "default",
     on_progress: Callable[[str], Awaitable[None]] | None = None,
     log_prefix: str = "",
-) -> str:
-    """向 ClaudeSDKClient 发送 query 并收集文本回复。
-
-    Args:
-        client: SDK client 实例
-        prompt: 用户消息
-        session_id: 会话 ID（SDK 层面的多轮标识）
-        on_progress: 工具调用时的进度回调
-        log_prefix: 日志前缀（如 "[chat_id]"）
-
-    Returns:
-        拼接后的文本回复
-    """
+) -> AgentRunResult:
+    """向 ClaudeSDKClient 发送 query，并收集文本与 structured_output。"""
     await client.query(prompt, session_id=session_id)
 
     parts: list[str] = []
     tool_count = 0
+    structured_output: Any = None
+    runtime_session_id = ""
 
     async for msg in client.receive_response():
         if isinstance(msg, TaskProgressMessage):
@@ -71,6 +70,8 @@ async def query_and_collect(
                 cost,
                 duration,
             )
+            structured_output = msg.structured_output
+            runtime_session_id = msg.session_id or runtime_session_id
             if msg.is_error:
                 logger.warning("{} stop_reason={}", log_prefix, msg.stop_reason)
 
@@ -84,7 +85,30 @@ async def query_and_collect(
         elif isinstance(msg, SystemMessage):
             logger.debug("{} sys subtype={}", log_prefix, msg.subtype)
 
-    return "\n".join(parts) or "（无响应）"
+    text = "\n".join(parts) or "（无响应）"
+    return AgentRunResult(
+        text=text,
+        structured_output=structured_output,
+        runtime_session_id=runtime_session_id,
+    )
+
+
+async def query_and_collect(
+    client: ClaudeSDKClient,
+    prompt: str,
+    *,
+    session_id: str = "default",
+    on_progress: Callable[[str], Awaitable[None]] | None = None,
+    log_prefix: str = "",
+) -> str:
+    result = await query_and_collect_result(
+        client,
+        prompt,
+        session_id=session_id,
+        on_progress=on_progress,
+        log_prefix=log_prefix,
+    )
+    return result.text
 
 
 def _log_tool_use(block: ToolUseBlock, prefix: str) -> None:

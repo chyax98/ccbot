@@ -8,18 +8,19 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import shutil
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from ccbot.config import AgentConfig
 from ccbot.models import WorkerTask
+from ccbot.observability import configure_langsmith_once
+from ccbot.runtime.profiles import RuntimeRole, build_sdk_options
 from ccbot.runtime.sdk_utils import query_and_collect
 
 if TYPE_CHECKING:
@@ -27,11 +28,10 @@ if TYPE_CHECKING:
 
     from claude_agent_sdk import ClaudeSDKClient
 
-# 清理循环检查间隔（秒）
 _CLEANUP_CHECK_INTERVAL = 120
 
 
-class WorkerStatus(str, Enum):
+class WorkerStatus(StrEnum):
     IDLE = "idle"
     RUNNING = "running"
 
@@ -50,18 +50,7 @@ class WorkerInfo:
 
 
 class WorkerPool:
-    """持久化 Worker 池，直接管理 ClaudeSDKClient。
-
-    每个 Worker 是一个 ClaudeSDKClient 持久子进程，通过 name 索引。
-    多次 send() 是多轮对话，Worker 保留完整上下文。
-
-    生命周期：
-        pool = WorkerPool(base_config)
-        await pool.start()
-        await pool.get_or_create(task)
-        result = await pool.send(task.name, task.task)
-        await pool.stop()
-    """
+    """持久化 Worker 池，直接管理 ClaudeSDKClient。"""
 
     def __init__(self, base_config: AgentConfig, idle_timeout: int = 3600) -> None:
         self._base_config = base_config
@@ -72,7 +61,6 @@ class WorkerPool:
         self._running = False
 
     async def start(self) -> None:
-        """启动清理循环。"""
         if self._running:
             return
         self._running = True
@@ -82,7 +70,6 @@ class WorkerPool:
         logger.info("WorkerPool 已启动，idle_timeout={}s", self._idle_timeout)
 
     async def stop(self) -> None:
-        """关闭所有 Worker。"""
         self._running = False
         if self._cleanup_task:
             self._cleanup_task.cancel()
@@ -96,7 +83,6 @@ class WorkerPool:
         logger.info("WorkerPool 已停止")
 
     async def get_or_create(self, task: WorkerTask) -> None:
-        """按 name 获取已有 Worker，不存在则创建。"""
         if task.name in self._clients:
             logger.info("复用已有 Worker: name={}", task.name)
             return
@@ -121,7 +107,6 @@ class WorkerPool:
         task: str,
         on_progress: Callable[[str], Awaitable[None]] | None = None,
     ) -> str:
-        """向 Worker 发送任务（多轮对话）。"""
         if name not in self._clients:
             raise KeyError(f"Worker '{name}' 不存在")
 
@@ -144,11 +129,22 @@ class WorkerPool:
             info.last_used = time.time()
 
     async def kill(self, name: str) -> None:
-        """销毁指定 Worker。"""
         await self._kill(name)
 
+    async def interrupt(self, name: str) -> bool:
+        """中断指定 Worker 当前任务。"""
+        client = self._clients.get(name)
+        if client is None:
+            return False
+        try:
+            await client.interrupt()
+            logger.info("中断 Worker: name={}", name)
+            return True
+        except Exception as e:
+            logger.warning("中断 Worker 失败: name={} error={}", name, e)
+            return False
+
     async def _kill(self, name: str) -> None:
-        """销毁指定 Worker（内部）。"""
         client = self._clients.pop(name, None)
         self._info.pop(name, None)
         if client:
@@ -159,11 +155,9 @@ class WorkerPool:
                 logger.warning("销毁 Worker 出错: name={} error={}", name, e)
 
     def list_workers(self) -> list[WorkerInfo]:
-        """列出所有活跃 Worker。"""
         return list(self._info.values())
 
     def format_status(self) -> str:
-        """格式化 Worker 状态，供注入 Supervisor prompt。"""
         if not self._info:
             return ""
         lines = ["[系统信息] 当前活跃 Workers:"]
@@ -180,36 +174,24 @@ class WorkerPool:
         return "\n".join(lines)
 
     def has_worker(self, name: str) -> bool:
-        """检查 Worker 是否存在。"""
         return name in self._clients
-
-    # ---- 内部方法 ----
 
     async def _create_client(self, task: WorkerTask) -> ClaudeSDKClient:
         """创建 ClaudeSDKClient。"""
+        configure_langsmith_once(self._base_config)
+
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
         _setup_worker_workspace(task.cwd)
 
-        system_prompt = _WORKER_PROMPT.format(cwd=task.cwd)
-        cwd = str(task.cwd)
-
-        kwargs: dict[str, Any] = {
-            "system_prompt": system_prompt,
-            "cwd": cwd,
-            "permission_mode": "bypassPermissions",
-        }
-
         model = task.model or self._base_config.model
-        if model:
-            kwargs["model"] = model
-        if task.max_turns:
-            kwargs["max_turns"] = task.max_turns
-        if self._base_config.mcp_servers:
-            kwargs["mcp_servers"] = self._base_config.mcp_servers
-        if self._base_config.env:
-            kwargs["settings"] = json.dumps({"env": self._base_config.env})
-            kwargs["setting_sources"] = ["project", "local"]
+        kwargs = build_sdk_options(
+            self._base_config,
+            role=RuntimeRole.WORKER,
+            cwd=task.cwd,
+            model=model,
+            max_turns=task.max_turns,
+        )
 
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
@@ -217,7 +199,6 @@ class WorkerPool:
         return client
 
     async def _cleanup_loop(self) -> None:
-        """后台任务：定期清理空闲 Worker。"""
         while self._running:
             try:
                 await asyncio.sleep(_CLEANUP_CHECK_INTERVAL)
@@ -228,7 +209,6 @@ class WorkerPool:
                 logger.warning("WorkerPool 清理任务出错: {}", e)
 
     async def _cleanup_idle(self) -> None:
-        """清理超时空闲 Worker。"""
         if self._idle_timeout <= 0:
             return
         now = time.time()
@@ -241,14 +221,6 @@ class WorkerPool:
             logger.info("清理空闲 Worker: name={} (idle > {}s)", name, self._idle_timeout)
             await self._kill(name)
 
-
-# ---- Worker 配置 ----
-
-_WORKER_PROMPT = """\
-You are a focused AI coding assistant.
-Working directory: {cwd}
-Complete the assigned task thoroughly and autonomously.
-"""
 
 _WORKER_TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "worker"
 

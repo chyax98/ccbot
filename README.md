@@ -106,6 +106,22 @@ Supervisor 分析 → <dispatch>?
 
 详见 [架构文档](docs/ARCHITECTURE.md)、[通信模块](docs/COMM.md) 和 [迁移指南](docs/MIGRATION.md)。
 
+## 可观测性
+
+`ccbot` 支持通过 LangSmith 官方 Claude Agent SDK 集成追踪 `ClaudeSDKClient` 的运行。
+
+```bash
+# 安装可观测性依赖
+uv sync --group observability
+
+# 启用 tracing
+export LANGSMITH_TRACING=true
+export LANGSMITH_API_KEY=lsv2_xxx
+export LANGSMITH_PROJECT=ccbot-dev
+```
+
+详见 `docs/LANGSMITH_INTEGRATION.md`。
+
 ## 多 Agent 调度
 
 Supervisor 自动识别适合并行的任务，输出 `<dispatch>` 计划：

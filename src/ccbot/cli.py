@@ -5,7 +5,12 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
+
+if TYPE_CHECKING:
+    from ccbot.channels.base import Channel
+    from ccbot.config import Config
+    from ccbot.workspace import WorkspaceManager
 
 import typer
 from loguru import logger
@@ -14,6 +19,11 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from ccbot import __logo__, __version__
+
+if TYPE_CHECKING:
+    from ccbot.channels import Channel
+    from ccbot.config import Config
+    from ccbot.workspace import WorkspaceManager
 
 app = typer.Typer(
     name="ccbot",
@@ -70,7 +80,7 @@ def chat(
     ] = _DEFAULT_CONFIG,
 ) -> None:
     """与 Claude Agent SDK 直接对话（交互模式或单次查询，支持多 Agent 调度）。"""
-    from ccbot.config import AgentConfig, load_config
+    from ccbot.config import load_config
     from ccbot.team import AgentTeam
     from ccbot.workspace import WorkspaceManager
 
@@ -131,6 +141,7 @@ def worker(
     """启动单次 worker agent 执行任务，结果写入文件（备用：供外部脚本调用）。"""
     from ccbot.agent import CCBotAgent
     from ccbot.config import AgentConfig
+    from ccbot.runtime.profiles import RuntimeRole
 
     out_path = Path(output).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -147,7 +158,7 @@ def worker(
             f"summary of what you accomplished to: {out_path}"
         ),
     )
-    agent = CCBotAgent(cfg)
+    agent = CCBotAgent(cfg, role=RuntimeRole.WORKER)
 
     async def run_worker() -> None:
         await agent.start()
@@ -161,38 +172,58 @@ def worker(
     asyncio.run(run_worker())
 
 
+def _create_channel(
+    channel_type: str, config: Config, workspace: WorkspaceManager,
+) -> Channel:
+    """根据 channel_type 创建对应通道。"""
+    if channel_type == "feishu":
+        from ccbot.channels.feishu import FeishuChannel
+
+        if not config.feishu.app_id or not config.feishu.app_secret:
+            raise typer.BadParameter(
+                "飞书 App ID 和 App Secret 未配置，请在配置文件中设置或使用环境变量 "
+                "CCBOT_FEISHU__APP_ID / CCBOT_FEISHU__APP_SECRET"
+            )
+        return FeishuChannel(config.feishu, output_dir=workspace.output_dir)
+    raise typer.BadParameter(f"不支持的通道类型: {channel_type}")
+
+
 @app.command()
 def run(
     config_path: Annotated[
         Path,
         typer.Option("--config", "-c", help="配置文件路径（JSON）"),
     ] = _DEFAULT_CONFIG,
+    channel_type: Annotated[
+        str,
+        typer.Option("--channel", help="通道类型（feishu）"),
+    ] = "feishu",
 ) -> None:
-    """启动飞书机器人（Supervisor+Worker 多 Agent 模式）。"""
-    from ccbot.channels.feishu import FeishuChannel
+    """启动机器人（Supervisor+Worker 多 Agent 模式）。"""
+    from ccbot.channels.base import IncomingMessage
     from ccbot.config import load_config
     from ccbot.heartbeat import HeartbeatService
     from ccbot.team import AgentTeam
     from ccbot.workspace import WorkspaceManager
 
     config = load_config(config_path)
-
-    if not config.feishu.app_id or not config.feishu.app_secret:
-        console.print("[red]错误: 飞书 App ID 和 App Secret 未配置[/red]")
-        console.print(
-            f"请在 {config_path} 中配置，或设置环境变量 "
-            "CCBOT_FEISHU__APP_ID / CCBOT_FEISHU__APP_SECRET"
-        )
-        raise typer.Exit(1)
-
     workspace = WorkspaceManager(Path(config.agent.workspace))
+    channel = _create_channel(channel_type, config, workspace)
     team = AgentTeam(config.agent, workspace)
 
-    async def on_message(text: str, chat_id: str, sender_id: str, send_progress) -> str:
-        return await team.ask(chat_id, text, on_progress=send_progress)
+    async def on_message(
+        message: IncomingMessage,
+        send_progress,
+        send_worker_result,
+    ) -> str:
+        return await team.ask(
+            message.conversation_id,
+            message.text,
+            on_progress=send_progress,
+            on_worker_result=send_worker_result,
+        )
 
-    channel = FeishuChannel(config.feishu)
-    channel.on_message(on_message)
+    channel.on_message_context(on_message)
 
     async def heartbeat_execute(prompt: str) -> str:
         return await team.ask("heartbeat", prompt)
@@ -208,9 +239,9 @@ def run(
 
     console.print(
         Panel(
-            f"{__logo__} 启动飞书机器人 (Supervisor+Worker)\n"
-            f"App ID: [cyan]{config.feishu.app_id[:10]}...[/cyan]\n"
-            f"Model:  [cyan]{config.agent.model or 'default'}[/cyan]\n"
+            f"{__logo__} 启动 {channel_type} 机器人 (Supervisor+Worker)\n"
+            f"Channel: [cyan]{channel_type}[/cyan]\n"
+            f"Model:   [cyan]{config.agent.model or 'default'}[/cyan]\n"
             f"Workspace: [cyan]{workspace.path}[/cyan]",
             border_style="cyan",
         )
@@ -228,6 +259,7 @@ def run(
                 )
                 await heartbeat.start()
             await channel.start()
+            await channel.wait_closed()
         finally:
             await channel.stop()
             await team.stop()

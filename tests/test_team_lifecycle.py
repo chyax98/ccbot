@@ -9,6 +9,7 @@ import pytest
 
 from ccbot.agent import CCBotAgent
 from ccbot.config import AgentConfig
+from ccbot.runtime.sdk_utils import AgentRunResult
 from ccbot.runtime.worker_pool import WorkerPool
 from ccbot.team import AgentTeam
 from ccbot.workspace import WorkspaceManager
@@ -50,7 +51,7 @@ class TestWorkerLifecycle:
 
         dispatch_plan = '<dispatch>[{"name": "w1", "cwd": "/x", "task": "do stuff"}]</dispatch>'
         supervisor = MagicMock(spec=CCBotAgent)
-        supervisor.ask = AsyncMock(side_effect=[dispatch_plan, "综合结果"])
+        supervisor.ask_run = AsyncMock(side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("综合结果")])
         supervisor.last_chat_id = None
         team._supervisor = supervisor
 
@@ -69,7 +70,7 @@ class TestWorkerLifecycle:
 
         dispatch_plan = '<dispatch>[{"name": "w1", "cwd": "/x", "task": "do stuff"}]</dispatch>'
         supervisor = MagicMock(spec=CCBotAgent)
-        supervisor.ask = AsyncMock(side_effect=[dispatch_plan, "综合结果"])
+        supervisor.ask_run = AsyncMock(side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("综合结果")])
         supervisor.last_chat_id = None
         team._supervisor = supervisor
 
@@ -88,7 +89,7 @@ class TestWorkerLifecycle:
 
         dispatch_plan = '<dispatch>[{"name": "w1", "cwd": "/x", "task": "fail"}]</dispatch>'
         supervisor = MagicMock(spec=CCBotAgent)
-        supervisor.ask = AsyncMock(side_effect=[dispatch_plan, "ok"])
+        supervisor.ask_run = AsyncMock(side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("ok")])
         supervisor.last_chat_id = None
         team._supervisor = supervisor
 
@@ -111,7 +112,7 @@ class TestWorkerLifecycle:
             {"name": "fail", "cwd": "/b", "task": "fail"}
         ]</dispatch>"""
         supervisor = MagicMock(spec=CCBotAgent)
-        supervisor.ask = AsyncMock(side_effect=[dispatch_plan, "综合"])
+        supervisor.ask_run = AsyncMock(side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("综合")])
         supervisor.last_chat_id = None
         team._supervisor = supervisor
 
@@ -149,7 +150,7 @@ class TestWorkerConcurrencyLimit:
         ]</dispatch>"""
 
         supervisor = MagicMock(spec=CCBotAgent)
-        supervisor.ask = AsyncMock(side_effect=[dispatch_plan, "done"])
+        supervisor.ask_run = AsyncMock(side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("done")])
         supervisor.last_chat_id = None
         team._supervisor = supervisor
 

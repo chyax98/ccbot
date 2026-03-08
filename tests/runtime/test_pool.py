@@ -21,6 +21,14 @@ class TestAgentPool:
         config.cwd = ""
         config.allowed_tools = []
         config.mcp_servers = {}
+        config.env = {}
+        config.langsmith_enabled = False
+        config.langsmith_project = ""
+        config.langsmith_name = "ccbot"
+        config.langsmith_tags = []
+        config.langsmith_metadata = {}
+        config.langsmith_endpoint = ""
+        config.langsmith_api_key = ""
         return config
 
     @pytest.fixture
@@ -130,3 +138,57 @@ class TestAgentPool:
 
         assert stats["active_clients"] == 0
         assert stats["idle_timeout"] == 300
+
+    @pytest.mark.asyncio
+    async def test_create_client_uses_claude_code_preset_and_project_settings(
+        self, mock_config, mock_workspace
+    ):
+        """AgentPool 应保留 Claude Code 原生 prompt，并加载项目级 settings。"""
+        pool = AgentPool(mock_config, mock_workspace, extra_system_prompt="Supervisor rules")
+
+        options_seen = {}
+
+        class DummyOptions:
+            def __init__(self, **kwargs):
+                options_seen.update(kwargs)
+
+        dummy_client = MagicMock()
+        dummy_client.connect = AsyncMock()
+
+        with patch("claude_agent_sdk.ClaudeAgentOptions", DummyOptions), patch(
+            "claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client
+        ):
+            await pool._create_client("chat_123")
+
+        assert options_seen["system_prompt"]["type"] == "preset"
+        assert options_seen["system_prompt"]["preset"] == "claude_code"
+        assert "System prompt" in options_seen["system_prompt"]["append"]
+        assert "Supervisor rules" in options_seen["system_prompt"]["append"]
+        assert options_seen["setting_sources"] == ["project"]
+        assert options_seen["cwd"] == str(mock_workspace.path)
+        dummy_client.connect.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_create_client_keeps_project_settings_when_env_is_injected(
+        self, mock_config, mock_workspace
+    ):
+        """注入 env 不应重新放开其他 setting sources。"""
+        mock_config.env = {"FOO": "BAR"}
+        pool = AgentPool(mock_config, mock_workspace)
+
+        options_seen = {}
+
+        class DummyOptions:
+            def __init__(self, **kwargs):
+                options_seen.update(kwargs)
+
+        dummy_client = MagicMock()
+        dummy_client.connect = AsyncMock()
+
+        with patch("claude_agent_sdk.ClaudeAgentOptions", DummyOptions), patch(
+            "claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client
+        ):
+            await pool._create_client("chat_123")
+
+        assert options_seen["setting_sources"] == ["project"]
+        assert options_seen["settings"] == "{\"env\": {\"FOO\": \"BAR\"}}"

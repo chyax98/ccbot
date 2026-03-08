@@ -24,6 +24,11 @@ class TestAgentConfig:
         assert config.mcp_servers == {}
         assert config.system_prompt == ""
         assert config.cwd == ""
+        assert config.langsmith_enabled is False
+        assert config.langsmith_project == ""
+        assert config.langsmith_name == "ccbot"
+        assert config.langsmith_tags == []
+        assert config.langsmith_metadata == {}
         assert config.heartbeat_enabled is True
         assert config.heartbeat_interval == 1800
 
@@ -82,7 +87,12 @@ class TestLoadConfig:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(
                 {
-                    "agent": {"model": "claude-opus-4-6", "max_turns": 50},
+                    "agent": {
+                        "model": "claude-opus-4-6",
+                        "max_turns": 50,
+                        "langsmith_enabled": True,
+                        "langsmith_project": "ccbot-dev"
+                    },
                     "feishu": {"app_id": "test_id"},
                 },
                 f,
@@ -93,6 +103,8 @@ class TestLoadConfig:
 
         assert config.agent.model == "claude-opus-4-6"
         assert config.agent.max_turns == 50
+        assert config.agent.langsmith_enabled is True
+        assert config.agent.langsmith_project == "ccbot-dev"
         assert config.feishu.app_id == "test_id"
 
     def test_load_nonexistent_uses_defaults(self) -> None:

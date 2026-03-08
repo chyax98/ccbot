@@ -27,6 +27,15 @@ class AgentConfig(BaseModel):
     # 注入 claude 子进程的额外环境变量（如 ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL）
     env: dict[str, str] = Field(default_factory=dict)
 
+    # LangSmith 可观测性配置（ClaudeSDKClient 官方原生 tracing）
+    langsmith_enabled: bool = False
+    langsmith_project: str = ""
+    langsmith_name: str = "ccbot"
+    langsmith_tags: list[str] = Field(default_factory=list)
+    langsmith_metadata: dict[str, Any] = Field(default_factory=dict)
+    langsmith_endpoint: str = ""
+    langsmith_api_key: str = ""
+
     # Heartbeat 配置
     heartbeat_enabled: bool = True
     heartbeat_interval: int = 1800  # 秒，默认 30 分钟
@@ -35,6 +44,10 @@ class AgentConfig(BaseModel):
     # Worker 模式配置（供 ccbot worker 命令使用）
     system_prompt: str = ""  # 直接指定 system prompt，非空时跳过 workspace 构建
     cwd: str = ""  # 工作目录覆盖，非空时替代 workspace.path
+
+    # Supervisor 记忆配置
+    supervisor_resume_enabled: bool = True  # 启动后优先基于持久化 session_id resume
+    short_term_memory_turns: int = 12  # 本地短期记忆保存的最大轮数（user/assistant turn）
 
     # Session 配置
     idle_timeout: int = 28800  # 空闲超时秒数，默认 8 小时（28800 = 8*3600）
@@ -72,8 +85,12 @@ class FeishuConfig(BaseModel):
     msg_split_max_len: int = 3000  # 长消息分段最大字符数
     confirm_timeout_s: int = 300  # <<<CONFIRM>>> 等待超时（秒）
 
+    # 消息处理超时
+    msg_process_timeout_s: int = 600  # 消息处理超时（秒），默认 10 分钟
+
     # WebSocket 配置
-    ws_reconnect_delay_s: int = 2  # WebSocket 重连延迟（秒）
+    ws_reconnect_delay_s: int = 2  # WebSocket 初始重连延迟（秒）
+    ws_reconnect_max_delay_s: int = 60  # WebSocket 最大重连延迟（秒）
 
 
 class Config(BaseSettings):

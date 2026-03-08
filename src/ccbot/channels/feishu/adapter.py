@@ -17,17 +17,16 @@ from typing import Any
 
 from loguru import logger
 
-from ccbot.channels.base import Channel
-from ccbot.channels.feishu.file_service import upload_and_send_outputs, upload_file
+from ccbot.channels.base import Channel, ChannelCapability, IncomingMessage
 from ccbot.channels.feishu.parser import extract_content
 from ccbot.channels.feishu.renderer import (
     CONFIRM_RE,
     parse_confirm,
     send_confirm_card,
-    send_file_message,
     send_single,
     split_content,
 )
+from ccbot.channels.feishu.responder import FeishuResponder
 from ccbot.config import FeishuConfig
 from ccbot.core import Debouncer, DedupCache, PerChatQueue
 
@@ -51,6 +50,34 @@ class FeishuChannel(Channel):
     Args:
         config: 飞书配置
     """
+
+    @property
+    def channel_name(self) -> str:
+        return "feishu"
+
+    @property
+    def capabilities(self) -> frozenset[ChannelCapability]:
+        return frozenset(
+            {
+                ChannelCapability.PROGRESS_UPDATES,
+                ChannelCapability.WORKER_RESULTS,
+                ChannelCapability.THREAD_REPLIES,
+                ChannelCapability.FILE_OUTPUTS,
+                ChannelCapability.INTERACTIVE_CONFIRM,
+                ChannelCapability.RICH_TEXT,
+            }
+        )
+
+    @property
+    def client(self) -> Any:
+        return self._client
+
+    @property
+    def output_dir(self) -> Path | None:
+        return self._output_dir
+
+    def build_responder(self, message: IncomingMessage) -> FeishuResponder:
+        return FeishuResponder(self, message)
 
     def __init__(self, config: FeishuConfig, *, output_dir: Path | None = None) -> None:
         super().__init__()
@@ -76,6 +103,7 @@ class FeishuChannel(Channel):
 
         # 待确认 Future 池：{confirm_id -> asyncio.Future[str]}
         self._pending_confirms: dict[str, asyncio.Future[str]] = {}
+        self._stopped_event: asyncio.Event | None = None
 
         # 设置 Debounce 回调
         self._debounce.on_flush(self._on_debounced_messages)
@@ -100,12 +128,12 @@ class FeishuChannel(Channel):
     @staticmethod
     def _is_control_command(event_json: str) -> bool:
         """检查是否为控制命令（不防抖）。"""
-        control_commands = {"/new", "/stop", "/help", "/reset", "/clear"}
+        control_commands = {"/new", "/stop", "/help", "/reset", "/clear", "/workers", "/memory show", "/memory clear"}
         try:
             event = json.loads(event_json)
             content = event.get("message", {}).get("content", "")
             text = json.loads(content).get("text", "").strip().lower()
-            return text in control_commands
+            return text in control_commands or text.startswith("/worker stop ") or text.startswith("/worker kill ")
         except Exception:
             return False
 
@@ -178,6 +206,23 @@ class FeishuChannel(Channel):
 
         # 线程回复目标：有 root_id 时回复到线程根，避免多层嵌套
         reply_msg_id = root_id or message_id
+        incoming = IncomingMessage(
+            text=content,
+            channel=self.channel_name,
+            conversation_id=reply_to,
+            reply_target=reply_to,
+            sender_id=sender_id,
+            message_id=message_id,
+            thread_id=reply_msg_id,
+            mentions_bot=bool(event.get("message", {}).get("mentions_bot")),
+            metadata={
+                "chat_id": chat_id,
+                "chat_type": chat_type,
+                "message_id": message_id,
+                "root_id": root_id or "",
+            },
+        )
+        responder = self.build_responder(incoming)
 
         logger.info("处理消息: sender={} chat={} content={}", sender_id, chat_id, content[:60])
 
@@ -204,12 +249,8 @@ class FeishuChannel(Channel):
                 if elapsed >= silent_s and since_last >= interval_s:
                     last_progress_time[0] = now
                     with contextlib.suppress(Exception):
-                        await self.send(
-                            reply_to,
-                            f"⏳ 已执行 **{total_tools[0]}** 次工具调用，仍在处理中...",
-                            msg_type="progress",
-                            reply_to_message_id=reply_msg_id,
-                            reply_in_thread=True,
+                        await responder.progress(
+                            f"⏳ 已执行 **{total_tools[0]}** 次工具调用，仍在处理中..."
                         )
 
         def _tool_summary() -> str:
@@ -219,17 +260,29 @@ class FeishuChannel(Channel):
 
         async def result_sender(worker_name: str, result: str) -> None:
             """异步派发：Worker 结果发送到飞书 Thread。"""
-            prefix = "✅" if not result.startswith("❌") else ""
-            await self.send(
-                reply_to,
-                f"**{prefix} [{worker_name}]**\n\n{result}",
-                reply_to_message_id=reply_msg_id,
-                reply_in_thread=True,
-            )
+            await responder.worker_result(worker_name, result)
+
+        timeout = self.config.msg_process_timeout_s
 
         try:
-            reply = await self._handle_message(
-                content, reply_to, sender_id, progress_cb, result_sender
+            reply = await asyncio.wait_for(
+                self._handle_message(
+                    content,
+                    reply_to,
+                    sender_id,
+                    progress_cb,
+                    result_sender,
+                    message_id=message_id,
+                    thread_id=root_id or message_id,
+                    mentions_bot=bool(event.get("message", {}).get("mentions_bot")),
+                    metadata={
+                        "chat_id": chat_id,
+                        "chat_type": chat_type,
+                        "message_id": message_id,
+                        "root_id": root_id or "",
+                    },
+                ),
+                timeout=timeout,
             )
 
             # 检查 <<<CONFIRM>>> 交互标记
@@ -237,7 +290,7 @@ class FeishuChannel(Channel):
             if confirm_match:
                 pre_text = reply[: confirm_match.start()].strip()
                 if pre_text:
-                    await self.send(reply_to, pre_text, reply_to_message_id=reply_msg_id)
+                    await responder.reply(pre_text)
 
                 question, options = parse_confirm(confirm_match.group(1))
                 confirm_id = uuid.uuid4().hex[:8]
@@ -252,29 +305,45 @@ class FeishuChannel(Channel):
                     choice = await asyncio.wait_for(
                         confirm_future, timeout=self.config.confirm_timeout_s
                     )
-                except (asyncio.TimeoutError, asyncio.CancelledError):
+                except (TimeoutError, asyncio.CancelledError):
                     choice = "（超时，用户未响应）"
                 finally:
                     self._pending_confirms.pop(confirm_id, None)
 
                 total_tools[0] = 0
-                follow_reply = await self._handle_message(
-                    f"[用户选择: {choice}]", reply_to, sender_id, progress_cb
+                follow_reply = await asyncio.wait_for(
+                    self._handle_message(
+                        f"[用户选择: {choice}]",
+                        reply_to,
+                        sender_id,
+                        progress_cb,
+                        message_id=message_id,
+                        thread_id=root_id or message_id,
+                        mentions_bot=True,
+                        metadata={"chat_id": chat_id, "chat_type": chat_type, "message_id": message_id, "root_id": root_id or ""},
+                    ),
+                    timeout=timeout,
                 )
                 final = follow_reply + _tool_summary()
-                await self.send(reply_to, final, reply_to_message_id=reply_msg_id)
-                await self._do_upload_outputs(reply_to, reply_msg_id, query_start)
+                await responder.reply(final)
+                await responder.upload_outputs_since(query_start)
                 return follow_reply
             else:
                 final = reply + _tool_summary()
-                await self.send(reply_to, final, reply_to_message_id=reply_msg_id)
-                await self._do_upload_outputs(reply_to, reply_msg_id, query_start)
+                await responder.reply(final)
+                await responder.upload_outputs_since(query_start)
                 return reply
+
+        except TimeoutError:
+            logger.warning("消息处理超时: chat_id={} ({}s)", chat_id, timeout)
+            error_msg = f"处理超时（{timeout}s），请重试或简化请求。"
+            await responder.error(error_msg)
+            return error_msg
 
         except Exception as e:
             logger.exception("处理消息失败: {}", e)
             error_msg = f"处理失败: {e}"
-            await self.send(reply_to, error_msg, msg_type="error", reply_to_message_id=reply_msg_id)
+            await responder.error(error_msg)
             return error_msg
 
         finally:
@@ -298,18 +367,6 @@ class FeishuChannel(Channel):
             return True
         return sender_id in allow_list
 
-    async def _do_upload_outputs(
-        self, reply_to: str, reply_msg_id: str | None, since: float
-    ) -> None:
-        """委托给 file_service 上传 output 目录文件。"""
-        await upload_and_send_outputs(
-            self._client,
-            self._output_dir,
-            reply_to,
-            reply_msg_id,
-            since,
-            send_file_message,
-        )
 
     # ==================== Lark SDK 集成 ====================
 
@@ -355,7 +412,8 @@ class FeishuChannel(Channel):
             log_level=lark.LogLevel.INFO,
         )
 
-        ws_reconnect_delay = self.config.ws_reconnect_delay_s
+        ws_base_delay = self.config.ws_reconnect_delay_s
+        ws_max_delay = self.config.ws_reconnect_max_delay_s
 
         def run_ws() -> None:
             import time
@@ -372,22 +430,29 @@ class FeishuChannel(Channel):
                         if attempt > 0:
                             logger.info("飞书 WebSocket 重连 (第 {} 次)...", attempt)
                         self._ws_client.start()
+                        attempt = 0  # 连接成功后重置退避
                     except Exception as e:
                         logger.warning("飞书 WebSocket 断开: {}", e)
                     if self._running:
                         attempt += 1
-                        time.sleep(ws_reconnect_delay)
+                        delay = min(ws_base_delay * (2 ** (attempt - 1)), ws_max_delay)
+                        logger.debug("重连延迟: {}s", delay)
+                        time.sleep(delay)
             finally:
                 ws_loop.close()
 
         self._running = True
+        self._stopped_event = asyncio.Event()
         self._ws_thread = threading.Thread(target=run_ws, daemon=True)
         self._ws_thread.start()
 
         logger.info("飞书通道已启动（Pipeline: Dedup → Debounce → Queue）")
 
-        while self._running:
-            await asyncio.sleep(1)
+    async def wait_closed(self) -> None:
+        """阻塞直到通道停止。"""
+        if self._stopped_event is None:
+            return
+        await self._stopped_event.wait()
 
     async def stop(self) -> None:
         """停止飞书通道。"""
@@ -397,6 +462,9 @@ class FeishuChannel(Channel):
         await self._queue.stop()
 
         await self._dedup.persist(Path.home() / ".ccbot" / "dedup", "feishu")
+
+        if self._stopped_event:
+            self._stopped_event.set()
 
         logger.info("飞书通道已停止")
 
@@ -473,6 +541,7 @@ class FeishuChannel(Channel):
             message_id = message.message_id
 
             # 群消息 require_mention 检查
+            bot_mentioned = False
             if self.config.require_mention and message.chat_type == "group" and self._bot_open_id:
                 mentions = getattr(message, "mentions", None) or []
                 bot_mentioned = any(
@@ -497,6 +566,7 @@ class FeishuChannel(Channel):
                     "message_type": message.message_type,
                     "content": message.content,
                     "root_id": getattr(message, "root_id", None),
+                    "mentions_bot": bot_mentioned,
                 },
                 "sender": {
                     "sender_id": {

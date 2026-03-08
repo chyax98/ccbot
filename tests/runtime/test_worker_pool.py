@@ -186,3 +186,52 @@ class TestWorkerPoolLifecycle:
                 await pool.send("fe", "broken")
         assert pool._info["fe"].status == WorkerStatus.IDLE
         assert pool._info["fe"].task_count == 0
+
+
+    @pytest.mark.asyncio
+    async def test_create_client_uses_claude_code_preset_and_project_settings(
+        self, pool: WorkerPool
+    ) -> None:
+        """Worker 应保留 Claude Code 原生 prompt，并加载 cwd 下的项目级 settings。"""
+        options_seen = {}
+
+        class DummyOptions:
+            def __init__(self, **kwargs):
+                options_seen.update(kwargs)
+
+        dummy_client = _mock_client()
+
+        with patch("ccbot.runtime.worker_pool._setup_worker_workspace"), patch(
+            "claude_agent_sdk.ClaudeAgentOptions", DummyOptions
+        ), patch("claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client):
+            await pool._create_client(_make_task())
+
+        assert options_seen["system_prompt"]["type"] == "preset"
+        assert options_seen["system_prompt"]["preset"] == "claude_code"
+        assert "Working directory" in options_seen["system_prompt"]["append"]
+        assert options_seen["setting_sources"] == ["project"]
+        assert options_seen["cwd"] == "/tmp/fe"
+        dummy_client.connect.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_create_client_keeps_project_settings_when_env_is_injected(
+        self, base_config: AgentConfig
+    ) -> None:
+        """Worker 注入 env 后仍只加载 project 级 setting sources。"""
+        base_config.env = {"FOO": "BAR"}
+        pool = WorkerPool(base_config, idle_timeout=3600)
+        options_seen = {}
+
+        class DummyOptions:
+            def __init__(self, **kwargs):
+                options_seen.update(kwargs)
+
+        dummy_client = _mock_client()
+
+        with patch("ccbot.runtime.worker_pool._setup_worker_workspace"), patch(
+            "claude_agent_sdk.ClaudeAgentOptions", DummyOptions
+        ), patch("claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client):
+            await pool._create_client(_make_task())
+
+        assert options_seen["setting_sources"] == ["project"]
+        assert options_seen["settings"] == "{\"env\": {\"FOO\": \"BAR\"}}"
