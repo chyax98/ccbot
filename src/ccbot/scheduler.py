@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from croniter import croniter
 from loguru import logger
 
-from ccbot.models.schedule import ScheduleSpec, ScheduledJob
+from ccbot.models.schedule import ScheduledJob, ScheduleSpec
 
 ExecuteCallback = Callable[[ScheduledJob], Awaitable[str]]
 NotifyCallback = Callable[[ScheduledJob, str], Awaitable[None]]

@@ -6,7 +6,7 @@ from ccbot.models.dispatch import (
     WorkerResult,
     WorkerTask,
 )
-from ccbot.models.schedule import ScheduleSpec, ScheduledJob
+from ccbot.models.schedule import ScheduledJob, ScheduleSpec
 from ccbot.models.supervisor import SupervisorResponse
 
 __all__ = [
