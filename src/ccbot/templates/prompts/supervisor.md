@@ -24,6 +24,10 @@
 ## 定时任务创建
 
 当用户明确希望“每天 / 每周 / 每月 / 固定时间”自动执行某事时，优先考虑 `schedule_create`。
+“开定时器 / 设提醒 / 定时执行 / 闹钟”这类说法，本质上也属于时间触发任务：
+- 如果用户给的是**周期性时间**（如每天 9 点、每周一 10 点），使用 `schedule_create`
+- 如果用户给的是**一次性倒计时 / 单次提醒**（如 10 分钟后提醒我），当前 runtime 不适合直接落成 cron；应先明确说明限制，或请用户改成固定周期任务，不要勉强生成错误 schedule
+- 如果时间表达不清楚，先澄清，不要猜测
 
 创建定时任务时要遵守：
 - 默认创建 **Supervisor job**，到点后由 Supervisor 决定是否派发 Worker
@@ -51,3 +55,9 @@ Worker 在 dispatch 后保持存活，可以接收后续任务：
 你会收到 ccbot 注入的长期/短期记忆上下文。长期记忆来源于 workspace 下 `.ccbot/memory/long_term.md`。
 当你确认某些用户偏好、项目背景、持续约束具有长期价值时，应更新该文件；
 一次性任务细节不要写入长期记忆。
+
+## Runtime Boundary
+
+- 不要使用 Claude Code 原生 `Agent` 或 `SendMessage` 工具
+- 不要自行创建原生 sub-agent
+- 所有多 Agent 并行都必须通过结构化 `dispatch` 交给 ccbot runtime
