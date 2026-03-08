@@ -93,7 +93,7 @@ def _make_worker_tools(
         {"type": "object", "properties": {}, "required": []},
     )
     async def ccbot_list_workers(args: dict[str, Any]) -> dict[str, Any]:
-        names = bus.get_worker_names(session_id)
+        names = await bus.get_worker_names(session_id)
         return _text(", ".join(names) if names else "无可用 Worker")
 
     @tool(

@@ -22,7 +22,8 @@ from ccbot.comm.bus import InMemoryBus
 from ccbot.comm.channel import WorkerChannel
 from ccbot.comm.context import InMemoryContext
 from ccbot.config import AgentConfig
-from ccbot.models import DispatchPayload, DispatchResult, WorkerResult
+from ccbot.models import DispatchPayload, DispatchResult, WorkerResult, WorkerTask
+from ccbot.models.comm import CommMessage
 from ccbot.workspace import WorkspaceManager
 
 # Supervisor 额外注入的多 Agent 调度说明
@@ -149,10 +150,7 @@ class AgentTeam:
         await context.create_session(session_id)
 
         # 2. 注册上报回调 → on_progress
-        async def _on_report(name: str, msg: object) -> None:
-            from ccbot.models.comm import CommMessage
-
-            assert isinstance(msg, CommMessage)
+        async def _on_report(name: str, msg: CommMessage) -> None:
             text = f"[{name}] {msg.subject}: {msg.body[:200]}"
             logger.info("[{}] worker 汇报: {}", chat_id, text)
             if on_progress:
@@ -162,12 +160,8 @@ class AgentTeam:
 
         try:
 
-            async def run_one(task_def: WorkerResult | object) -> WorkerResult:
+            async def run_one(task_def: WorkerTask) -> WorkerResult:
                 """执行单个 worker 任务，带并发控制和完整生命周期管理。"""
-                from ccbot.models import WorkerTask
-
-                assert isinstance(task_def, WorkerTask)
-
                 # 创建通信通道（SDK 进程内 MCP，无需 HTTP 服务器）
                 peer_names = [n for n in worker_names if n != task_def.name]
                 channel = WorkerChannel(bus, context, session_id, task_def.name, peer_names)

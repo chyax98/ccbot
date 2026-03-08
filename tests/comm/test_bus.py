@@ -188,7 +188,7 @@ async def test_session_isolation():
 
 async def test_get_worker_names(bus: InMemoryBus):
     """get_worker_names 返回正确的 Worker 列表。"""
-    names = bus.get_worker_names("s1")
+    names = await bus.get_worker_names("s1")
     assert set(names) == {"alice", "bob", "charlie"}
 
 

@@ -126,6 +126,7 @@ class InMemoryBus(MessageBusBackend):
         async with self._lock:
             return list(self._history.get(session_id, []))
 
-    def get_worker_names(self, session_id: str) -> list[str]:
+    async def get_worker_names(self, session_id: str) -> list[str]:
         """获取 session 中的 Worker 名称列表。"""
-        return list(self._workers.get(session_id, []))
+        async with self._lock:
+            return list(self._workers.get(session_id, []))
