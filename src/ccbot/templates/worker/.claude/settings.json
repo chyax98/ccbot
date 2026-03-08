@@ -3,6 +3,7 @@
     "AskUserQuestion",
     "EnterPlanMode",
     "ExitPlanMode",
+    "EnterWorktree",
     "statusline-setup"
   ]
 }

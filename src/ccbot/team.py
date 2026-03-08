@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import asyncio
 import re
+import shutil
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from uuid import uuid4
 
 from loguru import logger
@@ -26,6 +28,9 @@ from ccbot.config import AgentConfig
 from ccbot.models import DispatchPayload, DispatchResult, WorkerResult, WorkerTask
 from ccbot.models.comm import CommMessage
 from ccbot.workspace import WorkspaceManager
+
+# Worker 模板目录
+_WORKER_TEMPLATE_DIR = Path(__file__).parent / "templates" / "worker"
 
 # Supervisor 额外注入的多 Agent 调度说明
 _SUPERVISOR_PROMPT = """\
@@ -190,6 +195,9 @@ class AgentTeam:
                 peer_names = [n for n in worker_names if n != task_def.name]
                 channel = WorkerChannel(bus, context, session_id, task_def.name, peer_names)
 
+                # 配置 worker workspace（.claude/CLAUDE.md + settings.json）
+                created_files = _setup_worker_workspace(task_def.cwd)
+
                 cfg = AgentConfig(
                     model=task_def.model or self._config.model or "",
                     cwd=str(task_def.cwd),
@@ -244,6 +252,7 @@ class AgentTeam:
                         return WorkerResult.from_exception(task_def.name, e)
                     finally:
                         await worker.stop()
+                        _cleanup_worker_workspace(created_files)
 
             # 并行执行所有 worker（受 semaphore 限制并发数）
             worker_results = await asyncio.gather(
@@ -333,3 +342,60 @@ async def _build_comm_summary(bus: InMemoryBus, context: InMemoryContext, sessio
         lines.append(f"\n共享状态快照：\n{snapshot}")
 
     return "\n".join(lines)
+
+
+def _setup_worker_workspace(cwd: Path | str) -> list[Path]:
+    """在 worker cwd 中配置 .claude/ 环境（不覆盖已有文件）。
+
+    从 templates/worker/.claude/ 复制 CLAUDE.md 和 settings.json，
+    让 Claude Code 子进程自动加载 worker 身份和工具限制。
+
+    如果 cwd 不存在或不可写，优雅跳过（worker 仍可通过 system_prompt 获得基本引导）。
+
+    Returns:
+        本次创建的文件列表（用于 worker 完成后清理）。
+    """
+    cwd = Path(cwd)
+    created: list[Path] = []
+
+    if not cwd.is_dir():
+        logger.debug("Worker cwd 不存在，跳过 workspace 配置: {}", cwd)
+        return created
+
+    template_claude_dir = _WORKER_TEMPLATE_DIR / ".claude"
+    if not template_claude_dir.exists():
+        logger.warning("Worker 模板目录不存在: {}", template_claude_dir)
+        return created
+
+    try:
+        claude_dir = cwd / ".claude"
+        claude_dir.mkdir(parents=True, exist_ok=True)
+
+        for filename in ("CLAUDE.md", "settings.json"):
+            dest = claude_dir / filename
+            if dest.exists():
+                continue  # 尊重项目已有配置
+            src = template_claude_dir / filename
+            if src.exists():
+                shutil.copy2(src, dest)
+                created.append(dest)
+                logger.debug("Worker workspace: 创建 {}", dest)
+    except OSError as e:
+        logger.debug("Worker workspace 配置跳过（不可写）: {} — {}", cwd, e)
+
+    return created
+
+
+def _cleanup_worker_workspace(created_files: list[Path]) -> None:
+    """清理 _setup_worker_workspace 创建的文件，不影响项目原有配置。"""
+    for f in created_files:
+        f.unlink(missing_ok=True)
+
+    # 如果 .claude/ 目录是我们创建的且现在为空，也清理掉
+    if created_files:
+        claude_dir = created_files[0].parent
+        try:
+            if claude_dir.exists() and not any(claude_dir.iterdir()):
+                claude_dir.rmdir()
+        except OSError:
+            pass
