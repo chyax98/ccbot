@@ -11,6 +11,7 @@ import json
 import re
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,9 @@ class FeishuChannel(Channel):
         self._ws_thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._bot_open_id: str = ""
+
+        # 待确认 Future 池：{confirm_id -> asyncio.Future[str]}
+        self._pending_confirms: dict[str, asyncio.Future[str]] = {}
 
         # 设置 Debounce 回调
         self._debounce.on_flush(self._on_debounced_messages)
@@ -212,8 +216,50 @@ class FeishuChannel(Channel):
                         reply_to_message_id=reply_msg_id,
                     )
 
-            await self.send(reply_to, reply, reply_to_message_id=reply_msg_id)
-            return reply
+            # 检查 <<<CONFIRM>>> 交互标记
+            confirm_match = _CONFIRM_RE.search(reply)
+            if confirm_match:
+                # 发送 CONFIRM 前的文本（如果有）
+                pre_text = reply[: confirm_match.start()].strip()
+                if pre_text:
+                    await self.send(reply_to, pre_text, reply_to_message_id=reply_msg_id)
+
+                # 解析 question & options，发送按钮卡片
+                question, options = _parse_confirm(confirm_match.group(1))
+                confirm_id = uuid.uuid4().hex[:8]
+                cur_loop = asyncio.get_running_loop()
+                confirm_future: asyncio.Future[str] = cur_loop.create_future()
+                self._pending_confirms[confirm_id] = confirm_future
+                await self._send_confirm_card(reply_to, reply_msg_id, question, options, confirm_id)
+
+                # 等待用户点击按钮（最多 5 分钟）
+                try:
+                    choice = await asyncio.wait_for(confirm_future, timeout=300)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    choice = "（超时，用户未响应）"
+                finally:
+                    self._pending_confirms.pop(confirm_id, None)
+
+                # 将用户选择发回 Claude，获取后续回复
+                progress_buffer.clear()
+                total_tools[0] = 0
+                follow_reply = await self._handle_message(
+                    f"[用户选择: {choice}]", reply_to, sender_id, progress_cb
+                )
+                if progress_buffer:
+                    batch = "\n".join(progress_buffer)
+                    with contextlib.suppress(Exception):
+                        await self.send(
+                            reply_to,
+                            f"**{total_tools[0]} 工具调用**\n{batch}",
+                            msg_type="progress",
+                            reply_to_message_id=reply_msg_id,
+                        )
+                await self.send(reply_to, follow_reply, reply_to_message_id=reply_msg_id)
+                return follow_reply
+            else:
+                await self.send(reply_to, reply, reply_to_message_id=reply_msg_id)
+                return reply
 
         except Exception as e:
             logger.exception("处理消息失败: {}", e)
@@ -385,6 +431,7 @@ class FeishuChannel(Channel):
                 self.config.verification_token or "",
             )
             .register_p2_im_message_receive_v1(self._on_message_sync)
+            .register_p2_card_action_trigger(self._on_card_action_sync)
             .build()
         )
 
@@ -554,6 +601,118 @@ class FeishuChannel(Channel):
         except Exception as e:
             logger.error("发送消息出错: {}", e)
 
+    async def _send_confirm_card(
+        self,
+        target: str,
+        reply_to_message_id: str | None,
+        question: str,
+        options: list[str],
+        confirm_id: str,
+    ) -> None:
+        """发送带按钮的 Schema 2.0 交互确认卡片。
+
+        按钮 value 格式: {"confirm_id": "<id>", "choice": "<option>"}
+        """
+        buttons = []
+        for i, opt in enumerate(options[:4]):  # 飞书行动区最多 4 个按钮
+            buttons.append(
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": opt},
+                    "type": "primary" if i == 0 else "default",
+                    "value": {"confirm_id": confirm_id, "choice": opt},
+                }
+            )
+
+        card: dict = {
+            "schema": "2.0",
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": "❓ 等待确认"},
+                "template": "blue",
+            },
+            "body": {
+                "elements": [
+                    {"tag": "markdown", "content": question},
+                    {"tag": "action", "actions": buttons},
+                ],
+            },
+        }
+        feishu_content = json.dumps(card, ensure_ascii=False)
+
+        try:
+            loop = asyncio.get_running_loop()
+            if reply_to_message_id:
+                from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
+
+                request = (
+                    ReplyMessageRequest.builder()
+                    .message_id(reply_to_message_id)
+                    .request_body(
+                        ReplyMessageRequestBody.builder()
+                        .content(feishu_content)
+                        .msg_type("interactive")
+                        .reply_in_thread(True)
+                        .build()
+                    )
+                    .build()
+                )
+                response = await loop.run_in_executor(
+                    None, self._client.im.v1.message.reply, request
+                )
+            else:
+                from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+
+                receive_id_type = "chat_id" if target.startswith("oc_") else "open_id"
+                request = (
+                    CreateMessageRequest.builder()
+                    .receive_id_type(receive_id_type)
+                    .request_body(
+                        CreateMessageRequestBody.builder()
+                        .receive_id(target)
+                        .msg_type("interactive")
+                        .content(feishu_content)
+                        .build()
+                    )
+                    .build()
+                )
+                response = await loop.run_in_executor(
+                    None, self._client.im.v1.message.create, request
+                )
+            if not response.success():
+                logger.error("发送确认卡片失败: code={} msg={}", response.code, response.msg)
+        except Exception as e:
+            logger.error("发送确认卡片出错: {}", e)
+
+    def _on_card_action_sync(self, data: Any) -> Any:
+        """卡片按钮回调（WS 同步线程），解析 confirm_id 并唤醒等待的 Future。"""
+        from lark_oapi.event.callback.model.p2_card_action_trigger import (
+            CallBackToast,
+            P2CardActionTriggerResponse,
+        )
+
+        response = P2CardActionTriggerResponse()
+        try:
+            event = getattr(data, "event", None)
+            action = getattr(event, "action", None) if event else None
+            value: dict = (getattr(action, "value", None) or {}) if action else {}
+
+            confirm_id: str = value.get("confirm_id", "")
+            choice: str = value.get("choice", "")
+
+            if confirm_id and choice and self._loop:
+                future = self._pending_confirms.get(confirm_id)
+                if future and not future.done():
+                    self._loop.call_soon_threadsafe(future.set_result, choice)
+                    logger.info("卡片确认: confirm_id={} choice={}", confirm_id, choice)
+                    toast = CallBackToast()
+                    toast.type = "info"
+                    toast.content = f"已选择: {choice}"
+                    response.toast = toast
+        except Exception as e:
+            logger.error("卡片回调处理失败: {}", e)
+        return response
+
     def _on_message_sync(self, data: Any) -> None:
         """WebSocket 回调（同步线程）。"""
         if self._loop and self._loop.is_running():
@@ -691,6 +850,21 @@ class FeishuChannel(Channel):
 
 _RE_CODE_BLOCK = re.compile(r"```[\s\S]*?```")
 _RE_TABLE = re.compile(r"\|.+\|[\r\n]+\|[-:| ]+\|")
+_CONFIRM_RE = re.compile(r"<<<CONFIRM:\s*(.+?)>>>", re.DOTALL)
+
+
+def _parse_confirm(confirm_str: str) -> tuple[str, list[str]]:
+    """解析 <<<CONFIRM: question | opt1 | opt2 | ...>>> 格式。
+
+    Returns:
+        (question, options) 其中 options 至少含 2 项（默认为 ["确认", "取消"]）
+    """
+    parts = [p.strip() for p in confirm_str.split("|")]
+    question = parts[0] if parts else "请确认"
+    options = [p for p in parts[1:] if p]
+    if not options:
+        options = ["确认", "取消"]
+    return question, options
 
 
 def _should_use_card(text: str) -> bool:
