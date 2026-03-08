@@ -284,6 +284,9 @@ class AgentTeam:
         - 不做 Supervisor 综合（结果直接发给用户）
         - 单个 Worker 异常不中断其他 Workers
         """
+        # 让出控制权，确保调用方先完成派发摘要的发送
+        await asyncio.sleep(0)
+
         try:
             result = await self._run_workers(chat_id, dispatch, on_progress)
 
