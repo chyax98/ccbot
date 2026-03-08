@@ -1,8 +1,5 @@
 {
   "disallowedTools": [
-    "AskUserQuestion",
-    "EnterPlanMode",
-    "ExitPlanMode",
     "statusline-setup"
   ]
 }
