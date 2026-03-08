@@ -80,3 +80,27 @@ def test_configure_langsmith_warns_once_when_package_missing(monkeypatch) -> Non
     assert observability.configure_langsmith_once(config) is False
     assert observability._LANGSMITH_ATTEMPTED is True
     assert observability._LANGSMITH_CONFIGURED is False
+
+
+def test_get_langsmith_status_reflects_env_and_metadata(monkeypatch) -> None:
+    _reset()
+    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    monkeypatch.delenv("LANGSMITH_ENDPOINT", raising=False)
+    monkeypatch.delenv("LANGSMITH_PROJECT", raising=False)
+    config = AgentConfig(langsmith_enabled=True, langsmith_project="proj", model="sonnet")
+    status = observability.get_langsmith_status(config)
+
+    assert status["enabled"] is True
+    assert status["project"] == "proj"
+    assert status["name"] == "ccbot"
+    assert status["api_key_set"] is False
+    assert "configured_model" in status["metadata_keys"]
+
+
+def test_build_metadata_includes_runtime_fields() -> None:
+    config = AgentConfig(model="sonnet", max_turns=12, max_workers=3)
+    metadata = observability._build_metadata(config)
+
+    assert metadata["configured_model"] == "sonnet"
+    assert metadata["max_turns"] == 12
+    assert metadata["max_workers"] == 3

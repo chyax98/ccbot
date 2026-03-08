@@ -14,6 +14,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from ccbot import __logo__, __version__
+from ccbot.observability import get_langsmith_status
 
 if TYPE_CHECKING:
     from ccbot.channels.base import Channel
@@ -28,6 +29,32 @@ app = typer.Typer(
 console = Console()
 
 _DEFAULT_CONFIG = Path.home() / ".ccbot" / "config.json"
+
+
+def _augment_langsmith_metadata(
+    config: Config,
+    *,
+    entrypoint: str,
+    workspace: Path | None = None,
+    channel_type: str | None = None,
+) -> dict[str, object]:
+    metadata = dict(config.agent.langsmith_metadata)
+    metadata.setdefault("entrypoint", entrypoint)
+    if workspace is not None:
+        metadata.setdefault("workspace", str(workspace))
+    if channel_type:
+        metadata.setdefault("channel", channel_type)
+    if config.agent.model:
+        metadata.setdefault("configured_model", config.agent.model)
+    config.agent.langsmith_metadata = metadata
+    return get_langsmith_status(config.agent)
+
+
+def _format_langsmith_status(status: dict[str, object]) -> str:
+    if not status.get("enabled"):
+        return "disabled"
+    project = status.get("project") or "default"
+    return f"enabled ({project})"
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -82,6 +109,8 @@ def chat(
     config = load_config(config_path)
     ws_path = Path(workspace) if workspace else Path(config.agent.workspace)
     ws = WorkspaceManager(ws_path)
+    langsmith_status = _augment_langsmith_metadata(config, entrypoint="chat", workspace=ws.path)
+    logger.info("LangSmith: {}", _format_langsmith_status(langsmith_status))
     team = AgentTeam(config.agent, ws)
 
     async def run() -> None:
@@ -210,6 +239,13 @@ def run(
 
     config = load_config(config_path)
     workspace = WorkspaceManager(Path(config.agent.workspace))
+    langsmith_status = _augment_langsmith_metadata(
+        config,
+        entrypoint="run",
+        workspace=workspace.path,
+        channel_type=channel_type,
+    )
+    logger.info("LangSmith: {}", _format_langsmith_status(langsmith_status))
     channel = _create_channel(channel_type, config, workspace)
     team = AgentTeam(config.agent, workspace)
 
@@ -268,7 +304,8 @@ def run(
             f"{__logo__} 启动 {channel_type} 机器人 (Supervisor+Worker)\n"
             f"Channel: [cyan]{channel_type}[/cyan]\n"
             f"Model:   [cyan]{config.agent.model or 'default'}[/cyan]\n"
-            f"Workspace: [cyan]{workspace.path}[/cyan]",
+            f"Workspace: [cyan]{workspace.path}[/cyan]\n"
+            f"LangSmith: [cyan]{_format_langsmith_status(langsmith_status)}[/cyan]",
             border_style="cyan",
         )
     )

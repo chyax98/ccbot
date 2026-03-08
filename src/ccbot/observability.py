@@ -47,6 +47,11 @@ def _build_metadata(config: AgentConfig) -> dict[str, Any]:
         "service": "ccbot",
         "service_version": __version__,
         "runtime": "claude-agent-sdk",
+        "configured_model": config.model or "default",
+        "max_turns": config.max_turns,
+        "max_workers": config.max_workers,
+        "scheduler_enabled": config.scheduler_enabled,
+        "heartbeat_enabled": config.heartbeat_enabled,
     }
     metadata.update(config.langsmith_metadata)
     return metadata
@@ -56,6 +61,22 @@ def _build_tags(config: AgentConfig) -> list[str]:
     tags = ["ccbot", *config.langsmith_tags]
     # 去重但保留顺序
     return list(dict.fromkeys(tag for tag in tags if tag))
+
+
+def get_langsmith_status(config: AgentConfig) -> dict[str, Any]:
+    """Return the current LangSmith tracing state for logging/UI."""
+    project = config.langsmith_project or os.getenv("LANGSMITH_PROJECT", "")
+    endpoint = config.langsmith_endpoint or os.getenv("LANGSMITH_ENDPOINT", "")
+    api_key = config.langsmith_api_key or os.getenv("LANGSMITH_API_KEY", "")
+    return {
+        "enabled": _should_enable(config),
+        "project": project,
+        "name": config.langsmith_name or "ccbot",
+        "endpoint_set": bool(endpoint),
+        "api_key_set": bool(api_key),
+        "tags": _build_tags(config),
+        "metadata_keys": sorted(_build_metadata(config).keys()),
+    }
 
 
 def configure_langsmith_once(config: AgentConfig) -> bool:
