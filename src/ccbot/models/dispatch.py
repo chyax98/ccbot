@@ -110,11 +110,7 @@ class WorkerResult(BaseModel):
 
 
 class DispatchResult(BaseModel):
-    """完整调度结果。
-
-    Attributes:
-        workers: 所有 Worker 的结果列表
-    """
+    """完整调度结果。"""
 
     workers: list[WorkerResult]
 

@@ -16,33 +16,19 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from ccbot.config import AgentConfig
+from ccbot.memory import MemoryStore
+from ccbot.observability import configure_langsmith_once
+from ccbot.runtime.profiles import RuntimeRole, build_sdk_options
 from ccbot.workspace import WorkspaceManager
 
 if TYPE_CHECKING:
     from claude_agent_sdk import ClaudeSDKClient
 
-# 清理循环检查间隔（秒）
 _CLEANUP_CHECK_INTERVAL = 60
 
 
 class AgentPool:
-    """管理 ClaudeSDKClient 实例的池化组件。
-
-    每个 chat_id 对应一个 client，空闲超过 timeout 后自动关闭以释放资源。
-
-    Example:
-        pool = AgentPool(config, workspace, idle_timeout=1800)
-
-        # 获取或创建 client
-        client = await pool.acquire("chat_123")
-        try:
-            await client.query("hello")
-        finally:
-            await pool.release("chat_123")
-
-        # 停止时清理所有 client
-        await pool.stop()
-    """
+    """管理 ClaudeSDKClient 实例的池化组件。"""
 
     def __init__(
         self,
@@ -50,19 +36,17 @@ class AgentPool:
         workspace: WorkspaceManager | None = None,
         extra_system_prompt: str = "",
         idle_timeout: int | None = None,
+        output_format: dict[str, Any] | None = None,
+        role: RuntimeRole = RuntimeRole.SUPERVISOR,
+        memory_store: MemoryStore | None = None,
     ) -> None:
-        """初始化 AgentPool。
-
-        Args:
-            config: Agent 配置
-            workspace: 工作空间管理器
-            extra_system_prompt: 额外的 system prompt（如 Supervisor/Worker 提示）
-            idle_timeout: 空闲超时秒数，None 时使用 config.idle_timeout
-        """
         self._config = config
         self._workspace = workspace
         self._extra_system_prompt = extra_system_prompt
         self._idle_timeout = idle_timeout if idle_timeout is not None else config.idle_timeout
+        self._output_format = output_format
+        self._role = role
+        self._memory_store = memory_store
 
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._last_used: dict[str, float] = {}
@@ -71,7 +55,6 @@ class AgentPool:
         self._running = False
 
     async def start(self) -> None:
-        """启动池，开始空闲清理任务。"""
         if self._running:
             return
 
@@ -83,29 +66,18 @@ class AgentPool:
         logger.info("AgentPool 已启动，空闲超时: {}s", self._idle_timeout)
 
     async def stop(self) -> None:
-        """停止池，关闭所有 client。"""
         self._running = False
 
-        # 停止清理任务
         if self._cleanup_task:
             self._cleanup_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._cleanup_task
             self._cleanup_task = None
 
-        # 关闭所有 client
         await self._close_all()
         logger.info("AgentPool 已停止")
 
     async def acquire(self, chat_id: str) -> ClaudeSDKClient:
-        """获取指定 chat_id 的 client，不存在则创建。
-
-        Args:
-            chat_id: 会话唯一标识
-
-        Returns:
-            ClaudeSDKClient 实例
-        """
         if chat_id not in self._clients:
             client = await self._create_client(chat_id)
             self._clients[chat_id] = client
@@ -115,20 +87,10 @@ class AgentPool:
         return self._clients[chat_id]
 
     async def release(self, chat_id: str) -> None:
-        """释放 client（更新最后使用时间）。
-
-        Args:
-            chat_id: 会话唯一标识
-        """
         if chat_id in self._clients:
             self._last_used[chat_id] = time.time()
 
     async def close(self, chat_id: str) -> None:
-        """主动关闭指定 chat_id 的 client。
-
-        Args:
-            chat_id: 会话唯一标识
-        """
         client = self._clients.pop(chat_id, None)
         self._last_used.pop(chat_id, None)
         self._locks.pop(chat_id, None)
@@ -141,14 +103,6 @@ class AgentPool:
                 logger.warning("关闭 client 出错: chat_id={} error={}", chat_id, e)
 
     async def interrupt(self, chat_id: str) -> bool:
-        """中断指定 chat_id 正在执行的查询。
-
-        Args:
-            chat_id: 会话唯一标识
-
-        Returns:
-            True 如果成功中断，False 如果 client 不存在
-        """
         client = self._clients.get(chat_id)
         if not client:
             return False
@@ -160,14 +114,6 @@ class AgentPool:
             return False
 
     def get_stats(self) -> dict[str, int | float]:
-        """获取池统计信息。
-
-        Returns:
-            {
-                "active_clients": 活跃 client 数,
-                "idle_timeout": 空闲超时秒数,
-            }
-        """
         return {
             "active_clients": len(self._clients),
             "idle_timeout": self._idle_timeout,
@@ -175,35 +121,45 @@ class AgentPool:
 
     async def _create_client(self, chat_id: str) -> ClaudeSDKClient:
         """创建新的 ClaudeSDKClient。"""
+        configure_langsmith_once(self._config)
+
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
-        # 构建选项
         if self._config.system_prompt:
-            system_prompt = self._config.system_prompt
+            base_prompt = self._config.system_prompt
         elif self._workspace:
-            system_prompt = self._workspace.build_system_prompt()
+            base_prompt = self._workspace.build_system_prompt()
         else:
-            system_prompt = ""
-
-        # 添加额外的 system prompt
-        if self._extra_system_prompt:
-            system_prompt = f"{system_prompt}\n\n---\n\n{self._extra_system_prompt}".strip()
+            base_prompt = ""
 
         cwd = self._config.cwd or (str(self._workspace.path) if self._workspace else ".")
 
-        kwargs: dict[str, Any] = {
-            "system_prompt": system_prompt,
-            "cwd": cwd,
-            "permission_mode": "bypassPermissions",
-        }
-        if self._config.model:
-            kwargs["model"] = self._config.model
-        if self._config.max_turns:
-            kwargs["max_turns"] = self._config.max_turns
-        if self._config.allowed_tools:
-            kwargs["allowed_tools"] = self._config.allowed_tools
-        if self._config.mcp_servers:
-            kwargs["mcp_servers"] = self._config.mcp_servers
+        memory_prompt = ""
+        resume_session_id = ""
+        if self._role == RuntimeRole.SUPERVISOR and self._memory_store is not None:
+            memory_prompt = self._memory_store.build_memory_prompt(chat_id)
+            if self._config.supervisor_resume_enabled:
+                resume_session_id = self._memory_store.load(chat_id).runtime_session_id
+
+        extra_prompt = "\n\n---\n\n".join(
+            part for part in (memory_prompt, self._extra_system_prompt) if part
+        )
+
+        kwargs = build_sdk_options(
+            self._config,
+            role=self._role,
+            cwd=cwd,
+            base_prompt=base_prompt,
+            extra_prompt=extra_prompt,
+            model=self._config.model,
+            max_turns=self._config.max_turns,
+            allowed_tools=self._config.allowed_tools or None,
+            output_format=self._output_format,
+        )
+
+        if resume_session_id:
+            kwargs["resume"] = resume_session_id
+            kwargs["continue_conversation"] = True
 
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
@@ -211,7 +167,6 @@ class AgentPool:
         return client
 
     async def _cleanup_loop(self) -> None:
-        """后台任务：定期清理空闲 client。"""
         while self._running:
             try:
                 await asyncio.sleep(_CLEANUP_CHECK_INTERVAL)
@@ -222,7 +177,6 @@ class AgentPool:
                 logger.warning("清理任务出错: {}", e)
 
     async def _cleanup_idle(self) -> None:
-        """关闭超过空闲超时的 client。"""
         if self._idle_timeout <= 0:
             return
 
@@ -238,7 +192,6 @@ class AgentPool:
             await self.close(chat_id)
 
     async def _close_all(self) -> None:
-        """关闭所有 client。"""
         clients = list(self._clients.items())
         self._clients.clear()
         self._last_used.clear()
@@ -249,5 +202,4 @@ class AgentPool:
                 await asyncio.wait_for(client.disconnect(), timeout=3.0)
                 logger.debug("关闭 client: chat_id={}", chat_id)
             except Exception:
-                # Shutdown 期间 cancel scope 跨 task 是预期的，子进程会随主进程退出
                 logger.debug("关闭 client 跳过: chat_id={}", chat_id)

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from ccbot.config import A2AConfig, AgentConfig, Config, FeishuConfig, load_config
+from ccbot.config import AgentConfig, Config, FeishuConfig, load_config
 
 
 class TestAgentConfig:
@@ -24,6 +24,11 @@ class TestAgentConfig:
         assert config.mcp_servers == {}
         assert config.system_prompt == ""
         assert config.cwd == ""
+        assert config.langsmith_enabled is False
+        assert config.langsmith_project == ""
+        assert config.langsmith_name == "ccbot"
+        assert config.langsmith_tags == []
+        assert config.langsmith_metadata == {}
         assert config.heartbeat_enabled is True
         assert config.heartbeat_interval == 1800
 
@@ -66,16 +71,6 @@ class TestFeishuConfig:
         assert config.allow_from == ["user1", "user2"]
 
 
-class TestA2AConfig:
-    """A2AConfig 字段验证。"""
-
-    def test_defaults(self) -> None:
-        config = A2AConfig()
-        assert config.enabled is False
-        assert config.host == "0.0.0.0"
-        assert config.port == 8765
-
-
 class TestConfig:
     """顶层 Config 测试。"""
 
@@ -83,7 +78,6 @@ class TestConfig:
         config = Config()
         assert config.agent.max_turns == 10
         assert config.feishu.app_id == ""
-        assert config.a2a.enabled is False
 
 
 class TestLoadConfig:
@@ -93,7 +87,12 @@ class TestLoadConfig:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(
                 {
-                    "agent": {"model": "claude-opus-4-6", "max_turns": 50},
+                    "agent": {
+                        "model": "claude-opus-4-6",
+                        "max_turns": 50,
+                        "langsmith_enabled": True,
+                        "langsmith_project": "ccbot-dev"
+                    },
                     "feishu": {"app_id": "test_id"},
                 },
                 f,
@@ -104,6 +103,8 @@ class TestLoadConfig:
 
         assert config.agent.model == "claude-opus-4-6"
         assert config.agent.max_turns == 50
+        assert config.agent.langsmith_enabled is True
+        assert config.agent.langsmith_project == "ccbot-dev"
         assert config.feishu.app_id == "test_id"
 
     def test_load_nonexistent_uses_defaults(self) -> None:

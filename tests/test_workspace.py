@@ -12,89 +12,43 @@ def ws(tmp_path: Path) -> WorkspaceManager:
     return WorkspaceManager(tmp_path / "workspace")
 
 
-def test_dirs_created_on_init(ws: WorkspaceManager) -> None:
-    assert (ws.path / "memory").is_dir()
-    assert (ws.path / "skills").is_dir()
-
-
-def test_memory_file_path(ws: WorkspaceManager) -> None:
-    assert ws.memory_file == ws.path / "memory" / "MEMORY.md"
-
-
-def test_history_file_path(ws: WorkspaceManager) -> None:
-    assert ws.history_file == ws.path / "memory" / "HISTORY.md"
+def test_workspace_dir_created_on_init(ws: WorkspaceManager) -> None:
+    assert ws.path.is_dir()
 
 
 def test_heartbeat_file_path(ws: WorkspaceManager) -> None:
     assert ws.heartbeat_file == ws.path / "HEARTBEAT.md"
 
 
-def test_read_memory_empty_when_missing(ws: WorkspaceManager) -> None:
-    assert ws.read_memory() == ""
+def test_templates_copied_on_init(ws: WorkspaceManager) -> None:
+    # templates/.claude/settings.json 应已复制
+    settings = ws.path / ".claude" / "settings.json"
+    assert settings.exists(), ".claude/settings.json should be copied from templates"
 
 
-def test_read_memory_returns_content(ws: WorkspaceManager) -> None:
-    ws.memory_file.write_text("# Facts\n\nfoo bar", encoding="utf-8")
-    assert ws.read_memory() == "# Facts\n\nfoo bar"
+def test_templates_not_overwritten(ws: WorkspaceManager) -> None:
+    # 已存在的文件不应被覆盖
+    settings = ws.path / ".claude" / "settings.json"
+    if settings.exists():
+        settings.write_text("custom content")
+        # 重新初始化
+        WorkspaceManager(ws.path)
+        assert settings.read_text() == "custom content", "existing files should not be overwritten"
 
 
-def test_build_system_prompt_contains_identity(ws: WorkspaceManager) -> None:
+def test_build_system_prompt_contains_workspace_path(ws: WorkspaceManager) -> None:
     prompt = ws.build_system_prompt()
-    assert "ccbot" in prompt
     assert str(ws.path) in prompt
 
 
-def test_build_system_prompt_includes_memory(ws: WorkspaceManager) -> None:
-    ws.memory_file.write_text("Important fact: sky is blue", encoding="utf-8")
+def test_build_system_prompt_contains_time(ws: WorkspaceManager) -> None:
+    import re
+
     prompt = ws.build_system_prompt()
-    assert "Important fact: sky is blue" in prompt
+    assert re.search(r"\d{4}-\d{2}-\d{2}", prompt), "prompt should contain date"
 
 
-def test_build_system_prompt_includes_bootstrap_file(ws: WorkspaceManager) -> None:
-    (ws.path / "SOUL.md").write_text("Be helpful.", encoding="utf-8")
+def test_build_system_prompt_is_concise(ws: WorkspaceManager) -> None:
+    # 新的 build_system_prompt 只注入动态内容，不包含大段静态指令
     prompt = ws.build_system_prompt()
-    assert "Be helpful." in prompt
-
-
-def test_skills_summary_empty_when_no_skills(tmp_path: Path) -> None:
-    ws = WorkspaceManager(tmp_path / "empty_ws")
-    # No builtin skills exist relative to test env — summary may be empty or populated
-    # Just verify it doesn't crash
-    prompt = ws.build_system_prompt()
-    assert isinstance(prompt, str)
-
-
-def test_workspace_skill_overrides_builtin(tmp_path: Path) -> None:
-    ws = WorkspaceManager(tmp_path / "ws")
-    skill_dir = ws.path / "skills" / "test_skill"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        "---\ndescription: My custom skill\n---\n\nDo things.", encoding="utf-8"
-    )
-    prompt = ws.build_system_prompt()
-    assert "test_skill" in prompt
-
-
-def test_always_skill_injected_into_system_prompt(tmp_path: Path) -> None:
-    ws = WorkspaceManager(tmp_path / "ws")
-    skill_dir = ws.path / "skills" / "always_skill"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        '---\nmetadata: {"ccbot": {"always": true}}\ndescription: Always on\n---\n\nAlways active content.',
-        encoding="utf-8",
-    )
-    prompt = ws.build_system_prompt()
-    assert "Always active content." in prompt
-
-
-def test_skill_with_missing_bin_not_available(tmp_path: Path) -> None:
-    ws = WorkspaceManager(tmp_path / "ws")
-    skill_dir = ws.path / "skills" / "missing_bin_skill"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        '---\nmetadata: {"ccbot": {"requires": {"bins": ["__nonexistent_binary__9999"]}}}\ndescription: Needs bin\n---\n\nContent.',
-        encoding="utf-8",
-    )
-    # Skill should show as available=false in summary
-    summary = ws._build_skills_summary()
-    assert 'available="false"' in summary
+    assert len(prompt) < 500, "system prompt should be concise (static content is in CLAUDE.md)"
