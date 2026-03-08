@@ -67,7 +67,16 @@ class CLIChannel(Channel):
         async def progress_cb(msg: str) -> None:
             print(f"[{msg}]")
 
-        reply = await self._handle_message(message, self._chat_id, self._sender_id, progress_cb)
+        async def result_cb(worker_name: str, result: str) -> None:
+            print(f"[{worker_name}] {result}")
+
+        reply = await self._handle_message(
+            message,
+            self._chat_id,
+            self._sender_id,
+            progress_cb,
+            result_cb,
+        )
         print(f"{self._bot_name}: {reply}")
 
     async def _interactive_loop(self) -> None:
@@ -95,8 +104,15 @@ class CLIChannel(Channel):
                 async def progress_cb(msg: str) -> None:
                     print(f"  ... {msg}")
 
+                async def result_cb(worker_name: str, result: str) -> None:
+                    print(f"  => [{worker_name}] {result}")
+
                 reply = await self._handle_message(
-                    user_input, self._chat_id, self._sender_id, progress_cb
+                    user_input,
+                    self._chat_id,
+                    self._sender_id,
+                    progress_cb,
+                    result_cb,
                 )
 
                 print(f"{self._bot_name}: {reply}")

@@ -99,7 +99,7 @@ class AgentPool:
             try:
                 await client.disconnect()
                 logger.info("关闭 client: chat_id={}", chat_id)
-            except Exception as e:
+            except BaseException as e:
                 logger.warning("关闭 client 出错: chat_id={} error={}", chat_id, e)
 
     async def interrupt(self, chat_id: str) -> bool:
@@ -199,7 +199,7 @@ class AgentPool:
 
         for chat_id, client in clients:
             try:
-                await asyncio.wait_for(client.disconnect(), timeout=3.0)
+                await client.disconnect()
                 logger.debug("关闭 client: chat_id={}", chat_id)
-            except Exception:
-                logger.debug("关闭 client 跳过: chat_id={}", chat_id)
+            except BaseException as exc:
+                logger.debug("关闭 client 跳过: chat_id={} error={}", chat_id, exc)

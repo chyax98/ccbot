@@ -192,3 +192,16 @@ class TestAgentPool:
 
         assert options_seen["setting_sources"] == ["project"]
         assert options_seen["settings"] == "{\"env\": {\"FOO\": \"BAR\"}}"
+
+    @pytest.mark.asyncio
+    async def test_stop_ignores_disconnect_base_exception(self, mock_config, mock_workspace):
+        pool = AgentPool(mock_config, mock_workspace, idle_timeout=60)
+
+        mock_client = AsyncMock()
+        mock_client.disconnect = AsyncMock(side_effect=asyncio.CancelledError())
+
+        with patch.object(pool, "_create_client", return_value=mock_client):
+            await pool.acquire("chat_123")
+            await pool.stop()
+
+        assert len(pool._clients) == 0

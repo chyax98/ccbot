@@ -182,6 +182,10 @@ def _create_channel(
                 "CCBOT_FEISHU__APP_ID / CCBOT_FEISHU__APP_SECRET"
             )
         return FeishuChannel(config.feishu, output_dir=workspace.output_dir)
+    if channel_type == "cli":
+        from ccbot.channels.cli import CLIChannel
+
+        return CLIChannel()
     raise typer.BadParameter(f"不支持的通道类型: {channel_type}")
 
 
@@ -193,7 +197,7 @@ def run(
     ] = _DEFAULT_CONFIG,
     channel_type: Annotated[
         str,
-        typer.Option("--channel", help="通道类型（feishu）"),
+        typer.Option("--channel", help="通道类型（feishu|cli）"),
     ] = "feishu",
 ) -> None:
     """启动机器人（Supervisor+Worker 多 Agent 模式）。"""

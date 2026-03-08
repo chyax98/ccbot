@@ -149,9 +149,9 @@ class WorkerPool:
         self._info.pop(name, None)
         if client:
             try:
-                await asyncio.wait_for(client.disconnect(), timeout=3.0)
+                await client.disconnect()
                 logger.info("销毁 Worker: name={}", name)
-            except Exception as e:
+            except BaseException as e:
                 logger.warning("销毁 Worker 出错: name={} error={}", name, e)
 
     def list_workers(self) -> list[WorkerInfo]:

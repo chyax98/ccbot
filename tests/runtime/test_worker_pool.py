@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -235,3 +236,12 @@ class TestWorkerPoolLifecycle:
 
         assert options_seen["setting_sources"] == ["project"]
         assert options_seen["settings"] == "{\"env\": {\"FOO\": \"BAR\"}}"
+
+    @pytest.mark.asyncio
+    async def test_stop_ignores_disconnect_base_exception(self, pool: WorkerPool) -> None:
+        mock = _mock_client()
+        mock.disconnect = AsyncMock(side_effect=asyncio.CancelledError())
+        with patch.object(pool, "_create_client", return_value=mock):
+            await pool.get_or_create(_make_task())
+        await pool.stop()
+        assert not pool.has_worker("fe")
