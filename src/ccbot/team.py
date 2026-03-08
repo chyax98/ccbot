@@ -2,7 +2,7 @@
 
 协议：
   1. Supervisor 接收用户任务，决定直接处理或输出 <dispatch>[...] 计划
-  2. Python 解析计划，asyncio.gather 并行启动 NanobotAgent worker
+  2. Python 解析计划，asyncio.gather 并行启动 CCBotAgent worker
   3. 每个 worker 的 on_progress 回调前缀 "[name] "，供上层聚合显示
   4. 全部完成后结果喂回 Supervisor 综合，返回最终回复
 
@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 
 from loguru import logger
 
-from ccbot.agent import NanobotAgent
+from ccbot.agent import CCBotAgent
 from ccbot.config import AgentConfig
 from ccbot.models import DispatchPayload, DispatchResult, WorkerResult
 from ccbot.workspace import WorkspaceManager
@@ -58,21 +58,21 @@ class AgentTeam:
     """
     Supervisor（Opus）+ 动态 Worker 池，全部跑在同一 Python asyncio 进程内。
 
-    - 无额外进程：worker 就是 NanobotAgent（ClaudeSDKClient 子进程）
+    - 无额外进程：worker 就是 CCBotAgent（ClaudeSDKClient 子进程）
     - 无 bash 开销：Python asyncio.gather 并行，Supervisor 全程感知
     - 实时进度：worker on_progress 前缀 "[name] "，由上层聚合为状态看板
     - 容错：单个 worker 失败不影响其他 worker，结果中标记 ❌
     - 结构化 Dispatch：使用 Pydantic 模型替代文本解析
     - 并发控制：max_workers 限制并行 worker 数量
 
-    用法（等同 NanobotAgent.ask）：
+    用法（等同 CCBotAgent.ask）：
         team = AgentTeam(config, workspace)
         reply = await team.ask(chat_id, prompt, on_progress=cb)
     """
 
     def __init__(self, config: AgentConfig, workspace: WorkspaceManager) -> None:
         self._config = config
-        self._supervisor = NanobotAgent(config, workspace, extra_system_prompt=_SUPERVISOR_PROMPT)
+        self._supervisor = CCBotAgent(config, workspace, extra_system_prompt=_SUPERVISOR_PROMPT)
 
     async def start(self) -> None:
         """启动 AgentTeam，启动 Supervisor 的 AgentPool。"""
@@ -145,7 +145,7 @@ class AgentTeam:
                 system_prompt=_WORKER_PROMPT.format(cwd=task_def.cwd),
                 max_turns=task_def.max_turns,
             )
-            worker = NanobotAgent(cfg)
+            worker = CCBotAgent(cfg)
 
             async def worker_progress(msg: str) -> None:
                 tagged = f"[{task_def.name}] {msg}"

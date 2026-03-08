@@ -84,7 +84,7 @@ class Config(BaseSettings):
     a2a: A2AConfig = Field(default_factory=A2AConfig)
 
     model_config = SettingsConfigDict(
-        env_prefix="NANOBOT_",
+        env_prefix="CCBOT_",
         env_nested_delimiter="__",
     )
 

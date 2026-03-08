@@ -1,4 +1,4 @@
-"""Tests for NanobotAgent (Claude Agent SDK integration)."""
+"""Tests for CCBotAgent (Claude Agent SDK integration)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ccbot.agent import NanobotAgent
+from ccbot.agent import CCBotAgent
 from ccbot.config import AgentConfig
 from ccbot.workspace import WorkspaceManager
 
@@ -19,8 +19,8 @@ def ws(tmp_path: Path) -> WorkspaceManager:
 
 
 @pytest.fixture
-def agent(ws: WorkspaceManager) -> NanobotAgent:
-    return NanobotAgent(AgentConfig(), ws)
+def agent(ws: WorkspaceManager) -> CCBotAgent:
+    return CCBotAgent(AgentConfig(), ws)
 
 
 # ---- _make_options 配置项 (通过 AgentPool 测试) ----
@@ -29,35 +29,35 @@ def agent(ws: WorkspaceManager) -> NanobotAgent:
 def test_make_options_uses_model(ws: WorkspaceManager) -> None:
     """AgentPool 应该正确传递 model 配置。"""
     cfg = AgentConfig(model="claude-opus-4-6")
-    agent = NanobotAgent(cfg, ws)
+    agent = CCBotAgent(cfg, ws)
     # 通过内部 pool 验证配置
     assert agent._pool._config.model == "claude-opus-4-6"
 
 
 def test_make_options_no_model_is_none(ws: WorkspaceManager) -> None:
     """未设置 model 时应该为 None 或空字符串。"""
-    agent = NanobotAgent(AgentConfig(), ws)
+    agent = CCBotAgent(AgentConfig(), ws)
     assert not agent._pool._config.model
 
 
 def test_make_options_system_prompt_override(ws: WorkspaceManager) -> None:
     """直接指定 system_prompt 时应该优先使用。"""
     cfg = AgentConfig(system_prompt="custom prompt", cwd="/tmp")
-    agent = NanobotAgent(cfg)
+    agent = CCBotAgent(cfg)
     assert agent._pool._config.system_prompt == "custom prompt"
     assert agent._pool._config.cwd == "/tmp"
 
 
 def test_make_options_extra_system_prompt_appended(ws: WorkspaceManager) -> None:
     """extra_system_prompt 应该被传递到 AgentPool。"""
-    agent = NanobotAgent(AgentConfig(), ws, extra_system_prompt="## Extra")
+    agent = CCBotAgent(AgentConfig(), ws, extra_system_prompt="## Extra")
     assert agent._pool._extra_system_prompt == "## Extra"
 
 
 def test_make_options_workspace_optional() -> None:
     """system_prompt 直接指定时，workspace 可以为 None。"""
     cfg = AgentConfig(system_prompt="worker prompt", cwd="/tmp", max_turns=5)
-    agent = NanobotAgent(cfg)
+    agent = CCBotAgent(cfg)
     assert agent._pool._config.system_prompt == "worker prompt"
     assert agent._pool._config.cwd == "/tmp"
 
@@ -65,7 +65,7 @@ def test_make_options_workspace_optional() -> None:
 def test_make_options_cwd_fallback_to_dot() -> None:
     """workspace=None 且 cwd 未设置时，cwd 默认为空字符串（由 AgentPool 处理）。"""
     cfg = AgentConfig(system_prompt="x")
-    agent = NanobotAgent(cfg)
+    agent = CCBotAgent(cfg)
     assert agent._pool._config.cwd == ""
 
 
@@ -73,14 +73,14 @@ def test_make_options_cwd_fallback_to_dot() -> None:
 
 
 @pytest.mark.asyncio
-async def test_help_command_returns_text(agent: NanobotAgent) -> None:
+async def test_help_command_returns_text(agent: CCBotAgent) -> None:
     reply = await agent.ask("chat1", "/help")
     assert "/new" in reply
     assert "/stop" in reply
 
 
 @pytest.mark.asyncio
-async def test_new_command_closes_session(agent: NanobotAgent, ws: WorkspaceManager) -> None:
+async def test_new_command_closes_session(agent: CCBotAgent, ws: WorkspaceManager) -> None:
     """/new 命令应该关闭 session。"""
     # 注入一个 fake client
     mock_client = MagicMock()
@@ -95,7 +95,7 @@ async def test_new_command_closes_session(agent: NanobotAgent, ws: WorkspaceMana
 
 
 @pytest.mark.asyncio
-async def test_stop_command_calls_interrupt(agent: NanobotAgent) -> None:
+async def test_stop_command_calls_interrupt(agent: CCBotAgent) -> None:
     """/stop 命令应该中断当前任务。"""
     mock_client = MagicMock()
     mock_client.interrupt = AsyncMock()
@@ -108,7 +108,7 @@ async def test_stop_command_calls_interrupt(agent: NanobotAgent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_stop_command_no_active_session(agent: NanobotAgent) -> None:
+async def test_stop_command_no_active_session(agent: CCBotAgent) -> None:
     """没有活跃 session 时 /stop 不应该崩溃。"""
     reply = await agent.ask("chat1", "/stop")
     assert reply  # some response returned
@@ -136,7 +136,7 @@ def _make_mock_client(text_reply: str = "Hello!"):
 
 
 @pytest.mark.asyncio
-async def test_ask_returns_assistant_text(agent: NanobotAgent) -> None:
+async def test_ask_returns_assistant_text(agent: CCBotAgent) -> None:
     mock_client = _make_mock_client("Hi there!")
 
     with patch("claude_agent_sdk.ClaudeSDKClient", return_value=mock_client):
@@ -146,7 +146,7 @@ async def test_ask_returns_assistant_text(agent: NanobotAgent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ask_reuses_session_for_same_chat_id(agent: NanobotAgent) -> None:
+async def test_ask_reuses_session_for_same_chat_id(agent: CCBotAgent) -> None:
     mock_client = _make_mock_client("ok")
 
     with patch("claude_agent_sdk.ClaudeSDKClient", return_value=mock_client) as mock_cls:
@@ -159,7 +159,7 @@ async def test_ask_reuses_session_for_same_chat_id(agent: NanobotAgent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ask_creates_separate_sessions_per_chat_id(agent: NanobotAgent) -> None:
+async def test_ask_creates_separate_sessions_per_chat_id(agent: CCBotAgent) -> None:
     clients = [_make_mock_client("a"), _make_mock_client("b")]
     idx = 0
 
@@ -180,7 +180,7 @@ async def test_ask_creates_separate_sessions_per_chat_id(agent: NanobotAgent) ->
 
 
 @pytest.mark.asyncio
-async def test_ask_closes_session_on_error(agent: NanobotAgent) -> None:
+async def test_ask_closes_session_on_error(agent: CCBotAgent) -> None:
     mock_client = MagicMock()
     mock_client.connect = AsyncMock()
     mock_client.query = AsyncMock(side_effect=RuntimeError("boom"))
@@ -194,7 +194,7 @@ async def test_ask_closes_session_on_error(agent: NanobotAgent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_last_chat_id_updated(agent: NanobotAgent) -> None:
+async def test_last_chat_id_updated(agent: CCBotAgent) -> None:
     mock_client = _make_mock_client("ok")
 
     with patch("claude_agent_sdk.ClaudeSDKClient", return_value=mock_client):
@@ -204,7 +204,7 @@ async def test_last_chat_id_updated(agent: NanobotAgent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_progress_called_per_tool(agent: NanobotAgent) -> None:
+async def test_on_progress_called_per_tool(agent: CCBotAgent) -> None:
     """每次 TaskProgressMessage 都触发 on_progress（per-tool 通知）。"""
     from claude_agent_sdk import AssistantMessage, TaskProgressMessage, TaskUsage, TextBlock
 
@@ -254,7 +254,7 @@ async def test_on_progress_called_per_tool(agent: NanobotAgent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_concurrent_requests_serialized_per_chat_id(agent: NanobotAgent) -> None:
+async def test_concurrent_requests_serialized_per_chat_id(agent: CCBotAgent) -> None:
     """同一 chat_id 的并发请求被 Lock 串行化。"""
     order: list[str] = []
 

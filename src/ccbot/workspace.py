@@ -18,7 +18,7 @@ _BOOTSTRAP_FILES = ["SOUL.md", "AGENTS.md", "USER.md", "TOOLS.md", "IDENTITY.md"
 
 class WorkspaceManager:
     """
-    Manages the nanobot workspace directory.
+    Manages the ccbot workspace directory.
 
     Workspace layout:
         memory/MEMORY.md    — long-term facts (always in system_prompt)
@@ -179,7 +179,7 @@ class WorkspaceManager:
         return meta
 
     def _get_skill_meta(self, name: str) -> dict:
-        """Return nanobot/openclaw metadata block from skill frontmatter."""
+        """Return ccbot/nanobot/openclaw metadata block from skill frontmatter."""
         content = self._get_skill_content(name)
         if not content:
             return {}
@@ -189,7 +189,7 @@ class WorkspaceManager:
             try:
                 data = json.loads(raw)
                 if isinstance(data, dict):
-                    result: dict = data.get("nanobot", data.get("openclaw", {}))  # type: ignore[assignment]
+                    result: dict = data.get("ccbot", data.get("nanobot", data.get("openclaw", {})))  # type: ignore[assignment]
                     return result
             except Exception:
                 pass

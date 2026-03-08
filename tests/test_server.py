@@ -34,7 +34,7 @@ def a2a_server(mock_team):
         enabled=True,
         host="localhost",
         port=8765,
-        name="test-nanobot",
+        name="test-ccbot",
         description="Test agent",
     )
     return A2AServer(mock_team, config)
@@ -52,7 +52,7 @@ def test_agent_card(client):
     assert resp.status_code == 200
 
     data = resp.json()
-    assert data["name"] == "test-nanobot"
+    assert data["name"] == "test-ccbot"
     assert data["description"] == "Test agent"
     assert "message/send" in data["capabilities"]
     assert "message/stream" in data["capabilities"]

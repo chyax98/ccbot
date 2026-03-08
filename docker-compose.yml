@@ -11,7 +11,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      - NANOBOT_AGENT__WORKSPACE=/home/ccbot/.ccbot/workspace
+      - CCBOT_AGENT__WORKSPACE=/home/ccbot/.ccbot/workspace
     volumes:
       # 持久化 workspace（记忆、技能）
       - ccbot-workspace:/home/ccbot/.ccbot/workspace

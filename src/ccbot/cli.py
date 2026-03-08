@@ -124,7 +124,7 @@ def worker(
     max_turns: Annotated[int, typer.Option("--max-turns", help="最大轮数")] = 30,
 ) -> None:
     """启动单次 worker agent 执行任务，结果写入文件（备用：供外部脚本调用）。"""
-    from ccbot.agent import NanobotAgent
+    from ccbot.agent import CCBotAgent
     from ccbot.config import AgentConfig
 
     out_path = Path(output).expanduser()
@@ -142,7 +142,7 @@ def worker(
             f"summary of what you accomplished to: {out_path}"
         ),
     )
-    agent = NanobotAgent(cfg)
+    agent = CCBotAgent(cfg)
 
     async def run_worker() -> None:
         await agent.start()
@@ -176,7 +176,7 @@ def run(
         console.print("[red]错误: 飞书 App ID 和 App Secret 未配置[/red]")
         console.print(
             f"请在 {config_path} 中配置，或设置环境变量 "
-            "NANOBOT_FEISHU__APP_ID / NANOBOT_FEISHU__APP_SECRET"
+            "CCBOT_FEISHU__APP_ID / CCBOT_FEISHU__APP_SECRET"
         )
         raise typer.Exit(1)
 

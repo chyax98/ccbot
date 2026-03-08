@@ -40,7 +40,7 @@ def test_read_memory_returns_content(ws: WorkspaceManager) -> None:
 
 def test_build_system_prompt_contains_identity(ws: WorkspaceManager) -> None:
     prompt = ws.build_system_prompt()
-    assert "nanobot" in prompt
+    assert "ccbot" in prompt
     assert str(ws.path) in prompt
 
 

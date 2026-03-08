@@ -1,4 +1,4 @@
-"""CcbotAgent: per-chat-id ClaudeSDKClient sessions with workspace integration.
+"""CCBotAgent: per-chat-id ClaudeSDKClient sessions with workspace integration.
 
 使用 AgentPool 作为底层 client 管理器，消除重复的生命周期管理代码。
 """
@@ -29,7 +29,7 @@ _HELP_TEXT = """\
 /help — Show this help"""
 
 
-class NanobotAgent:
+class CCBotAgent:
     """
     Multi-turn agent backed by Claude Agent SDK.
 

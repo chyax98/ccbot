@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ccbot.agent import NanobotAgent
+from ccbot.agent import CCBotAgent
 from ccbot.config import AgentConfig
 from ccbot.team import AgentTeam
 from ccbot.workspace import WorkspaceManager
@@ -27,17 +27,17 @@ class TestWorkerLifecycle:
         team = AgentTeam(AgentConfig(), ws)
 
         dispatch_plan = '<dispatch>[{"name": "w1", "cwd": "/x", "task": "do stuff"}]</dispatch>'
-        supervisor = MagicMock(spec=NanobotAgent)
+        supervisor = MagicMock(spec=CCBotAgent)
         supervisor.ask = AsyncMock(side_effect=[dispatch_plan, "综合结果"])
         supervisor.last_chat_id = None
         team._supervisor = supervisor
 
-        worker_mock = MagicMock(spec=NanobotAgent)
+        worker_mock = MagicMock(spec=CCBotAgent)
         worker_mock.start = AsyncMock()
         worker_mock.stop = AsyncMock()
         worker_mock.ask = AsyncMock(return_value="worker done")
 
-        with patch("ccbot.team.NanobotAgent", return_value=worker_mock):
+        with patch("ccbot.team.CCBotAgent", return_value=worker_mock):
             await team.ask("chat1", "任务")
 
         worker_mock.start.assert_awaited_once()
@@ -49,17 +49,17 @@ class TestWorkerLifecycle:
         team = AgentTeam(AgentConfig(), ws)
 
         dispatch_plan = '<dispatch>[{"name": "w1", "cwd": "/x", "task": "fail"}]</dispatch>'
-        supervisor = MagicMock(spec=NanobotAgent)
+        supervisor = MagicMock(spec=CCBotAgent)
         supervisor.ask = AsyncMock(side_effect=[dispatch_plan, "ok"])
         supervisor.last_chat_id = None
         team._supervisor = supervisor
 
-        worker_mock = MagicMock(spec=NanobotAgent)
+        worker_mock = MagicMock(spec=CCBotAgent)
         worker_mock.start = AsyncMock()
         worker_mock.stop = AsyncMock()
         worker_mock.ask = AsyncMock(side_effect=RuntimeError("crash"))
 
-        with patch("ccbot.team.NanobotAgent", return_value=worker_mock):
+        with patch("ccbot.team.CCBotAgent", return_value=worker_mock):
             await team.ask("chat1", "任务")
 
         worker_mock.start.assert_awaited_once()
@@ -74,7 +74,7 @@ class TestWorkerLifecycle:
             {"name": "ok", "cwd": "/a", "task": "succeed"},
             {"name": "fail", "cwd": "/b", "task": "fail"}
         ]</dispatch>"""
-        supervisor = MagicMock(spec=NanobotAgent)
+        supervisor = MagicMock(spec=CCBotAgent)
         supervisor.ask = AsyncMock(side_effect=[dispatch_plan, "综合"])
         supervisor.last_chat_id = None
         team._supervisor = supervisor
@@ -82,7 +82,7 @@ class TestWorkerLifecycle:
         workers_created: list[MagicMock] = []
 
         def create_worker(*args, **kwargs):
-            w = MagicMock(spec=NanobotAgent)
+            w = MagicMock(spec=CCBotAgent)
             w.start = AsyncMock()
             w.stop = AsyncMock()
             if len(workers_created) == 0:
@@ -92,7 +92,7 @@ class TestWorkerLifecycle:
             workers_created.append(w)
             return w
 
-        with patch("ccbot.team.NanobotAgent", side_effect=create_worker):
+        with patch("ccbot.team.CCBotAgent", side_effect=create_worker):
             await team.ask("chat1", "multi")
 
         assert len(workers_created) == 2
@@ -117,7 +117,7 @@ class TestWorkerConcurrencyLimit:
             {"name": "w3", "cwd": "/c", "task": "t3"}
         ]</dispatch>"""
 
-        supervisor = MagicMock(spec=NanobotAgent)
+        supervisor = MagicMock(spec=CCBotAgent)
         supervisor.ask = AsyncMock(side_effect=[dispatch_plan, "done"])
         supervisor.last_chat_id = None
         team._supervisor = supervisor
@@ -133,13 +133,13 @@ class TestWorkerConcurrencyLimit:
             return f"done: {task}"
 
         def create_worker(*args, **kwargs):
-            w = MagicMock(spec=NanobotAgent)
+            w = MagicMock(spec=CCBotAgent)
             w.start = AsyncMock()
             w.stop = AsyncMock()
             w.ask = AsyncMock(side_effect=slow_ask)
             return w
 
-        with patch("ccbot.team.NanobotAgent", side_effect=create_worker):
+        with patch("ccbot.team.CCBotAgent", side_effect=create_worker):
             await team.ask("chat1", "并行任务")
 
         # 并发数不应超过 max_workers
