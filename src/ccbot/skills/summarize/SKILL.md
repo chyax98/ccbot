@@ -1,7 +1,7 @@
 ---
 name: summarize
 description: Summarize or extract text/transcripts from URLs, podcasts, and local files.
-metadata: {"nanobot":{"emoji":"🧾","requires":{"bins":["summarize"]}}}
+metadata: {"ccbot":{"emoji":"🧾","requires":{"bins":["summarize"]}}}
 ---
 
 # Summarize

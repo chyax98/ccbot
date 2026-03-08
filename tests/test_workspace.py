@@ -80,7 +80,7 @@ def test_always_skill_injected_into_system_prompt(tmp_path: Path) -> None:
     skill_dir = ws.path / "skills" / "always_skill"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
-        '---\nmetadata: {"nanobot": {"always": true}}\ndescription: Always on\n---\n\nAlways active content.',
+        '---\nmetadata: {"ccbot": {"always": true}}\ndescription: Always on\n---\n\nAlways active content.',
         encoding="utf-8",
     )
     prompt = ws.build_system_prompt()
@@ -92,7 +92,7 @@ def test_skill_with_missing_bin_not_available(tmp_path: Path) -> None:
     skill_dir = ws.path / "skills" / "missing_bin_skill"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
-        '---\nmetadata: {"nanobot": {"requires": {"bins": ["__nonexistent_binary__9999"]}}}\ndescription: Needs bin\n---\n\nContent.',
+        '---\nmetadata: {"ccbot": {"requires": {"bins": ["__nonexistent_binary__9999"]}}}\ndescription: Needs bin\n---\n\nContent.',
         encoding="utf-8",
     )
     # Skill should show as available=false in summary
