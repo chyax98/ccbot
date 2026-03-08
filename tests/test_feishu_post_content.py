@@ -1,27 +1,9 @@
-"""Tests for FeishuChannel._extract_post_content."""
+"""Tests for extract_post_content (parser module)."""
 
-from typing import ClassVar
-
-from ccbot.channels.feishu.adapter import FeishuChannel
-
-
-class MockConfig:
-    """Mock config for testing."""
-
-    app_id = "test"
-    app_secret = "test"
-    encrypt_key = ""
-    verification_token = ""
-    allow_from: ClassVar[list[str]] = ["*"]
-    react_emoji = "THUMBSUP"
-    require_mention = False
-    progress_mode = "edit"
+from ccbot.channels.feishu.parser import extract_post_content
 
 
 def test_extract_post_content_supports_post_wrapper_shape() -> None:
-    channel = FeishuChannel.__new__(FeishuChannel)
-    channel.config = MockConfig()
-
     payload = {
         "post": {
             "zh_cn": {
@@ -36,17 +18,13 @@ def test_extract_post_content_supports_post_wrapper_shape() -> None:
         }
     }
 
-    text = channel._extract_post_content(payload)
+    text = extract_post_content(payload)
 
-    # 新实现只提取 text/a/at 标签的内容，不包含 title
+    # 只提取 text/a/at 标签的内容，不包含 title
     assert text == "完成"
 
 
 def test_extract_post_content_keeps_direct_shape_behavior() -> None:
-    channel = FeishuChannel.__new__(FeishuChannel)
-    channel.config = MockConfig()
-
-    # 新实现期望 post wrapper 或直接 content 结构
     payload = {
         "post": {
             "en_us": {
@@ -62,15 +40,12 @@ def test_extract_post_content_keeps_direct_shape_behavior() -> None:
         }
     }
 
-    text = channel._extract_post_content(payload)
+    text = extract_post_content(payload)
 
     assert text == "report"
 
 
 def test_extract_post_content_handles_at_tag() -> None:
-    channel = FeishuChannel.__new__(FeishuChannel)
-    channel.config = MockConfig()
-
     payload = {
         "post": {
             "zh_cn": {
@@ -84,15 +59,12 @@ def test_extract_post_content_handles_at_tag() -> None:
         }
     }
 
-    text = channel._extract_post_content(payload)
+    text = extract_post_content(payload)
 
     assert text == "Hello @Alice"
 
 
 def test_extract_post_content_empty_when_no_recognized_tags() -> None:
-    channel = FeishuChannel.__new__(FeishuChannel)
-    channel.config = MockConfig()
-
     payload = {
         "post": {
             "zh_cn": {
@@ -105,6 +77,6 @@ def test_extract_post_content_empty_when_no_recognized_tags() -> None:
         }
     }
 
-    text = channel._extract_post_content(payload)
+    text = extract_post_content(payload)
 
     assert text == ""

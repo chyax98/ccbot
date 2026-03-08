@@ -46,16 +46,6 @@ class AgentConfig(BaseModel):
     max_workers: int = Field(default=4, ge=1, le=16)  # 最大并行 worker 数
 
 
-class A2AConfig(BaseModel):
-    """A2A 协议服务器配置（Agent-to-Agent 通信）。"""
-
-    enabled: bool = False
-    host: str = "0.0.0.0"
-    port: int = 8765
-    name: str = "ccbot"
-    description: str = "Claude Agent SDK powered assistant with multi-agent orchestration"
-
-
 class FeishuConfig(BaseModel):
     """飞书机器人配置。"""
 
@@ -74,11 +64,21 @@ class FeishuConfig(BaseModel):
     # 交互配置
     react_emoji: str = "THINKING"  # 收到消息时的表情反应，飞书合法 emoji_type
 
+    # 进度消息配置
+    progress_silent_s: int = 30  # 进度消息静默期（秒）
+    progress_interval_s: int = 60  # 进度消息最小间隔（秒）
+
+    # 消息配置
+    msg_split_max_len: int = 3000  # 长消息分段最大字符数
+    confirm_timeout_s: int = 300  # <<<CONFIRM>>> 等待超时（秒）
+
+    # WebSocket 配置
+    ws_reconnect_delay_s: int = 2  # WebSocket 重连延迟（秒）
+
 
 class Config(BaseSettings):
     feishu: FeishuConfig = Field(default_factory=FeishuConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
-    a2a: A2AConfig = Field(default_factory=A2AConfig)
 
     model_config = SettingsConfigDict(
         env_prefix="CCBOT_",

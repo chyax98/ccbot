@@ -110,15 +110,9 @@ class WorkerResult(BaseModel):
 
 
 class DispatchResult(BaseModel):
-    """完整调度结果。
-
-    Attributes:
-        workers: 所有 Worker 的结果列表
-        comm_summary: Worker 间通信摘要（由通信基础设施生成）
-    """
+    """完整调度结果。"""
 
     workers: list[WorkerResult]
-    comm_summary: str = ""
 
     @property
     def all_succeeded(self) -> bool:
@@ -138,6 +132,4 @@ class DispatchResult(BaseModel):
                 lines.append(f"### [{worker.name}]\n{worker.result}\n")
             else:
                 lines.append(f"### [{worker.name}] ❌ 执行失败\n错误: {worker.error}\n")
-        if self.comm_summary:
-            lines.append(f"\n### Worker 协作记录\n{self.comm_summary}")
         return "\n".join(lines)
