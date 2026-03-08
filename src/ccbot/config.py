@@ -88,9 +88,9 @@ class Config(BaseSettings):
 
 
 def load_config(path: Path = _DEFAULT_CONFIG) -> Config:
-    """加载配置：JSON 文件为基础，环境变量优先级更高。
+    """加载配置：JSON 文件为主配置，CCBOT_* 环境变量用于部署时覆盖。
 
-    优先级：环境变量 > JSON 文件 > 默认值
+    优先级：JSON 文件 > CCBOT_* 环境变量 > 默认值
     """
     from pydantic_settings import JsonConfigSettingsSource
 
@@ -105,9 +105,10 @@ def load_config(path: Path = _DEFAULT_CONFIG) -> Config:
             env_settings: PydanticBaseSettingsSource,
             **kwargs: Any,
         ) -> tuple[PydanticBaseSettingsSource, ...]:
-            sources: list[PydanticBaseSettingsSource] = [init_settings, env_settings]
+            sources: list[PydanticBaseSettingsSource] = [init_settings]
             if json_path.exists():
                 sources.append(JsonConfigSettingsSource(settings_cls, json_file=json_path))
+            sources.append(env_settings)
             return tuple(sources)
 
     return _Config()

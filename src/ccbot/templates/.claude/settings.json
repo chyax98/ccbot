@@ -1,0 +1,10 @@
+{
+  "disallowedTools": [
+    "AskUserQuestion",
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "EnterWorktree",
+    "NotebookEdit",
+    "statusline-setup"
+  ]
+}

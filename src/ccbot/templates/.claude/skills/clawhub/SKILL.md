@@ -27,21 +27,22 @@ npx --yes clawhub@latest search "web scraping" --limit 5
 ## Install
 
 ```bash
-npx --yes clawhub@latest install <slug> --workdir ~/.ccbot/workspace
+# WORKSPACE 从 system prompt 中的 "Workspace: ..." 获取
+npx --yes clawhub@latest install <slug> --workdir $WORKSPACE/.claude
 ```
 
-Replace `<slug>` with the skill name from search results. This places the skill into `~/.ccbot/workspace/skills/`, where ccbot loads workspace skills from. Always include `--workdir`.
+Replace `<slug>` with the skill name from search results. Skills are placed into `$WORKSPACE/.claude/skills/`, loaded natively by Claude Code. Always include `--workdir`.
 
 ## Update
 
 ```bash
-npx --yes clawhub@latest update --all --workdir ~/.ccbot/workspace
+npx --yes clawhub@latest update --all --workdir $WORKSPACE/.claude
 ```
 
 ## List installed
 
 ```bash
-npx --yes clawhub@latest list --workdir ~/.ccbot/workspace
+npx --yes clawhub@latest list --workdir $WORKSPACE/.claude
 ```
 
 ## Notes
@@ -49,5 +50,5 @@ npx --yes clawhub@latest list --workdir ~/.ccbot/workspace
 - Requires Node.js (`npx` comes with it).
 - No API key needed for search and install.
 - Login (`npx --yes clawhub@latest login`) is only required for publishing.
-- `--workdir ~/.ccbot/workspace` is critical — without it, skills install to the current directory instead of the ccbot workspace.
+- `--workdir $WORKSPACE/.claude` is critical — skills go into `.claude/skills/` under your workspace.
 - After install, remind the user to start a new session to load the skill.

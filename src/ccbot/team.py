@@ -21,7 +21,6 @@ from ccbot.agent import CCBotAgent
 from ccbot.comm.bus import InMemoryBus
 from ccbot.comm.channel import WorkerChannel
 from ccbot.comm.context import InMemoryContext
-from ccbot.comm.server import CommServer
 from ccbot.config import AgentConfig
 from ccbot.models import DispatchPayload, DispatchResult, WorkerResult
 from ccbot.workspace import WorkspaceManager
@@ -161,11 +160,6 @@ class AgentTeam:
 
         bus.on_report(_on_report)
 
-        # 3. 启动 CommServer
-        server = CommServer(bus, context, session_id)
-        port = await server.start()
-        logger.info("[{}] CommServer 已启动: port={}", chat_id, port)
-
         try:
 
             async def run_one(task_def: WorkerResult | object) -> WorkerResult:
@@ -174,9 +168,9 @@ class AgentTeam:
 
                 assert isinstance(task_def, WorkerTask)
 
-                # 创建通信通道
+                # 创建通信通道（SDK 进程内 MCP，无需 HTTP 服务器）
                 peer_names = [n for n in worker_names if n != task_def.name]
-                channel = WorkerChannel(server, session_id, task_def.name, peer_names)
+                channel = WorkerChannel(bus, context, session_id, task_def.name, peer_names)
 
                 cfg = AgentConfig(
                     model=task_def.model or self._config.model or "",
@@ -239,12 +233,11 @@ class AgentTeam:
                 return_exceptions=False,  # 异常在 run_one 内部捕获
             )
 
-            # 4. 收集通信记录 + 状态快照
+            # 3. 收集通信记录 + 状态快照
             comm_summary = await _build_comm_summary(bus, context, session_id)
 
             return DispatchResult(workers=list(worker_results), comm_summary=comm_summary)
         finally:
-            await server.stop()
             await bus.close_session(session_id)
             await context.close_session(session_id)
 
