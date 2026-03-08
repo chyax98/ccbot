@@ -73,7 +73,6 @@ class FeishuConfig(BaseModel):
 
     # 交互配置
     react_emoji: str = "THINKING"  # 收到消息时的表情反应，飞书合法 emoji_type
-    progress_mode: str = "milestone"  # "milestone"=每3条批量发送 / "verbose"=每条都发
 
 
 class Config(BaseSettings):

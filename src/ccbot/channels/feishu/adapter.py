@@ -190,52 +190,36 @@ class FeishuChannel(Channel):
         # 添加表情表示正在处理
         reaction_id = await self._add_reaction(message_id, self.config.react_emoji)
 
-        # 进度回调
-        progress_buffer: list[str] = []
-        last_send_time = [time.time()]
+        # 进度回调：前 30s 静默（emoji 反应足够），之后每 60s 最多一条，发到 Thread
+        last_progress_time = [query_start]
         total_tools = [0]
-        all_tool_names: list[str] = []  # 用于最终摘要
-        # verbose: 每次都发；milestone: 每 5 次或超过 10s 发一次
-        batch_size = 1 if self.config.progress_mode == "verbose" else 5
 
         async def progress_cb(msg: str) -> None:
             logger.info("[{}] 进度: {}", chat_id, msg)
 
             if msg.startswith("🔧"):
-                tool_info = msg.replace("🔧 ", "").strip()
-                all_tool_names.append(tool_info.split("|")[0].strip())
-                if len(tool_info) > 60:
-                    tool_info = tool_info[:57] + "..."
                 total_tools[0] += 1
-                progress_buffer.append(f"{total_tools[0]}. {tool_info}")
-
                 now = time.time()
-                should_send = len(progress_buffer) >= batch_size or (
-                    progress_buffer and now - last_send_time[0] > 10
-                )
+                elapsed = now - query_start
+                since_last = now - last_progress_time[0]
 
-                if should_send:
-                    batch = "\n".join(progress_buffer)
-                    progress_buffer.clear()
-                    last_send_time[0] = now
+                # 静默期 30s + 之后每 60s 一条
+                if elapsed >= 30 and since_last >= 60:
+                    last_progress_time[0] = now
                     with contextlib.suppress(Exception):
                         await self.send(
                             reply_to,
-                            f"**⏳ {total_tools[0]} 工具调用**\n{batch}",
+                            f"⏳ 已执行 **{total_tools[0]}** 次工具调用，仍在处理中...",
                             msg_type="progress",
                             reply_to_message_id=reply_msg_id,
-                            reply_in_thread=False,  # 直接在聊天里显示，让用户看到进度
+                            reply_in_thread=True,
                         )
 
         def _tool_summary() -> str:
-            """生成工具调用详情摘要，供追加到最终回复（每行 ≤80 字符）。"""
-            if not total_tools[0]:
+            """生成工具调用计数摘要，追加到最终回复。"""
+            if total_tools[0] <= 3:
                 return ""
-            lines = [f"\n\n---\n🔧 共执行 **{total_tools[0]}** 次工具调用\n"]
-            for i, detail in enumerate(all_tool_names, 1):
-                short = detail[:80] + ("…" if len(detail) > 80 else "")
-                lines.append(f"{i}. {short}")
-            return "\n".join(lines)
+            return f"\n\n---\n🔧 共执行 **{total_tools[0]}** 次工具调用"
 
         async def result_sender(worker_name: str, result: str) -> None:
             """异步派发：Worker 结果发送到飞书 Thread。"""
@@ -247,25 +231,10 @@ class FeishuChannel(Channel):
                 reply_in_thread=True,
             )
 
-        async def _send_remaining_progress() -> None:
-            if progress_buffer:
-                batch = "\n".join(progress_buffer)
-                progress_buffer.clear()
-                with contextlib.suppress(Exception):
-                    await self.send(
-                        reply_to,
-                        f"**⏳ {total_tools[0]} 工具调用**\n{batch}",
-                        msg_type="progress",
-                        reply_to_message_id=reply_msg_id,
-                        reply_in_thread=False,
-                    )
-
         try:
             reply = await self._handle_message(
                 content, reply_to, sender_id, progress_cb, result_sender
             )
-
-            await _send_remaining_progress()
 
             # 检查 <<<CONFIRM>>> 交互标记
             confirm_match = _CONFIRM_RE.search(reply)
@@ -292,13 +261,10 @@ class FeishuChannel(Channel):
                     self._pending_confirms.pop(confirm_id, None)
 
                 # 将用户选择发回 Claude，获取后续回复
-                progress_buffer.clear()
                 total_tools[0] = 0
-                all_tool_names.clear()
                 follow_reply = await self._handle_message(
                     f"[用户选择: {choice}]", reply_to, sender_id, progress_cb
                 )
-                await _send_remaining_progress()
                 final = follow_reply + _tool_summary()
                 await self.send(reply_to, final, reply_to_message_id=reply_msg_id)
                 await self._upload_and_send_outputs(reply_to, reply_msg_id, since=query_start)
