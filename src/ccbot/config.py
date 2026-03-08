@@ -36,6 +36,10 @@ class AgentConfig(BaseModel):
     langsmith_endpoint: str = ""
     langsmith_api_key: str = ""
 
+    # Scheduler 配置
+    scheduler_enabled: bool = True
+    scheduler_poll_interval_s: int = 30
+
     # Heartbeat 配置
     heartbeat_enabled: bool = True
     heartbeat_interval: int = 1800  # 秒，默认 30 分钟

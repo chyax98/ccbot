@@ -122,3 +122,8 @@ class CLIChannel(Channel):
         print("  /worker kill <name>  销毁指定 Worker")
         print("  /memory show         查看本地记忆快照")
         print("  /memory clear        清空当前会话记忆")
+        print("  /schedule list       查看定时任务")
+        print("  /schedule run <id>   立即执行定时任务")
+        print("  /schedule pause <id> 暂停定时任务")
+        print("  /schedule resume <id> 恢复定时任务")
+        print("  /schedule delete <id> 删除定时任务")

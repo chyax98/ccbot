@@ -124,9 +124,11 @@ class DispatchResult(BaseModel):
         """返回失败的 Worker 名称列表。"""
         return [w.name for w in self.workers if not w.success]
 
-    def to_synthesis_prompt(self) -> str:
+    def to_synthesis_prompt(self, original_request: str = "") -> str:
         """生成供 Supervisor 综合的提示词。"""
         lines = ["以下是各 worker 的执行结果，请综合后向用户汇报：\n"]
+        if original_request:
+            lines.append(f"用户原始请求：{original_request}\n")
         for worker in self.workers:
             if worker.success:
                 lines.append(f"### [{worker.name}]\n{worker.result}\n")

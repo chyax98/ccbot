@@ -7,11 +7,6 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
-if TYPE_CHECKING:
-    from ccbot.channels.base import Channel
-    from ccbot.config import Config
-    from ccbot.workspace import WorkspaceManager
-
 import typer
 from loguru import logger
 from rich.console import Console
@@ -21,7 +16,7 @@ from rich.panel import Panel
 from ccbot import __logo__, __version__
 
 if TYPE_CHECKING:
-    from ccbot.channels import Channel
+    from ccbot.channels.base import Channel
     from ccbot.config import Config
     from ccbot.workspace import WorkspaceManager
 
@@ -173,7 +168,9 @@ def worker(
 
 
 def _create_channel(
-    channel_type: str, config: Config, workspace: WorkspaceManager,
+    channel_type: str,
+    config: Config,
+    workspace: WorkspaceManager,
 ) -> Channel:
     """根据 channel_type 创建对应通道。"""
     if channel_type == "feishu":
@@ -203,6 +200,7 @@ def run(
     from ccbot.channels.base import IncomingMessage
     from ccbot.config import load_config
     from ccbot.heartbeat import HeartbeatService
+    from ccbot.scheduler import SchedulerService
     from ccbot.team import AgentTeam
     from ccbot.workspace import WorkspaceManager
 
@@ -221,6 +219,12 @@ def run(
             message.text,
             on_progress=send_progress,
             on_worker_result=send_worker_result,
+            request_context={
+                "channel": message.channel,
+                "notify_target": message.reply_target,
+                "conversation_id": message.conversation_id,
+                "sender_id": message.sender_id,
+            },
         )
 
     channel.on_message_context(on_message)
@@ -237,6 +241,24 @@ def run(
                 "心跳通知无目标 chat_id，已跳过（可在配置中设置 heartbeat_notify_chat_id）"
             )
 
+    async def schedule_execute(job) -> str:
+        return await team.ask(job.runtime_chat_id, job.prompt)
+
+    async def schedule_notify(job, content: str) -> None:
+        target = job.notify_target or config.agent.heartbeat_notify_chat_id or team.last_chat_id
+        if target:
+            await channel.send(target, content)
+        else:
+            logger.warning("定时任务通知无目标，已跳过 job_id={}", job.job_id)
+
+    scheduler = SchedulerService(
+        workspace.path,
+        schedule_execute,
+        schedule_notify,
+        poll_interval_s=config.agent.scheduler_poll_interval_s,
+    )
+    team.set_scheduler(scheduler)
+
     console.print(
         Panel(
             f"{__logo__} 启动 {channel_type} 机器人 (Supervisor+Worker)\n"
@@ -249,7 +271,10 @@ def run(
 
     async def main() -> None:
         await team.start()
+        heartbeat = None
         try:
+            if config.agent.scheduler_enabled:
+                await scheduler.start()
             if config.agent.heartbeat_enabled:
                 heartbeat = HeartbeatService(
                     workspace.heartbeat_file,
@@ -261,6 +286,10 @@ def run(
             await channel.start()
             await channel.wait_closed()
         finally:
+            if heartbeat is not None:
+                heartbeat.stop()
+            if config.agent.scheduler_enabled:
+                await scheduler.stop()
             await channel.stop()
             await team.stop()
 

@@ -13,17 +13,24 @@ _TEMPLATES = Path(__file__).parent / "templates"
 
 class WorkspaceManager:
     """
-    管理 ccbot workspace 目录。
+    管理 ccbot 的主 workspace 目录。
 
     首次运行时将 templates/ 复制到 workspace（跳过已存在的文件），之后不再覆盖。
-    Claude Code 子进程以 workspace 为 cwd 启动，自动加载：
-      .claude/CLAUDE.md      — 项目级指令（个性、工具说明、heartbeat 说明）
-      .claude/settings.json  — 工具权限（disallowedTools 等）
-      .claude/skills/        — 技能（原生 Skill tool 管理）
-      native auto memory     — ~/.claude/projects/<hash>/memory/
+    Supervisor 的 Claude Code 子进程以 workspace 为 cwd 启动，会自动加载：
+      .claude/CLAUDE.md      — 项目级指令
+      .claude/settings.json  — 项目级工具权限
+      .claude/skills/        — 可复用技能
 
-    workspace 下只有一个需要关注的动态文件：
-      HEARTBEAT.md           — 定时任务列表
+    运行时状态统一放在 workspace/.ccbot/ 下：
+      .ccbot/memory/         — Supervisor 本地长期/短期记忆
+      .ccbot/schedules/      — 定时任务持久化
+
+    其他动态文件：
+      HEARTBEAT.md           — 心跳任务入口
+      output/                — 生成文件输出目录
+
+    Worker 不复用主 workspace；Worker 直接以各自 task.cwd 作为运行目录。
+    如果 task.cwd 下没有 .claude/，WorkerPool 会补齐最小模板，但不会覆盖已有配置。
     """
 
     def __init__(self, path: Path) -> None:
@@ -50,14 +57,14 @@ class WorkspaceManager:
 
     @property
     def output_dir(self) -> Path:
-        """Claude 写出文件的目录，由 FeishuChannel 自动上传。"""
+        """Claude 写出文件的目录，由 Channel 自动上传或展示。"""
         return self.path / "output"
 
-    def build_system_prompt(self) -> str:
-        """注入动态内容：workspace 路径 + 当前时间。
+    @property
+    def runtime_dir(self) -> Path:
+        return self.path / ".ccbot"
 
-        静态指令（个性、工具说明、技能）由 .claude/CLAUDE.md 承载，Claude Code 自动加载。
-        Memory 由 Claude Code 原生 auto memory 管理，无需手动注入。
-        """
+    def build_system_prompt(self) -> str:
+        """注入动态内容：workspace 路径 + 当前时间。"""
         now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
         return f"Workspace: {self.path}\nCurrent time: {now}"

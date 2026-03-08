@@ -128,12 +128,20 @@ class FeishuChannel(Channel):
     @staticmethod
     def _is_control_command(event_json: str) -> bool:
         """检查是否为控制命令（不防抖）。"""
-        control_commands = {"/new", "/stop", "/help", "/reset", "/clear", "/workers", "/memory show", "/memory clear"}
+        control_commands = {"/new", "/stop", "/help", "/reset", "/clear", "/workers", "/memory show", "/memory clear", "/schedule list"}
         try:
             event = json.loads(event_json)
             content = event.get("message", {}).get("content", "")
             text = json.loads(content).get("text", "").strip().lower()
-            return text in control_commands or text.startswith("/worker stop ") or text.startswith("/worker kill ")
+            return (
+                text in control_commands
+                or text.startswith("/worker stop ")
+                or text.startswith("/worker kill ")
+                or text.startswith("/schedule run ")
+                or text.startswith("/schedule pause ")
+                or text.startswith("/schedule resume ")
+                or text.startswith("/schedule delete ")
+            )
         except Exception:
             return False
 
