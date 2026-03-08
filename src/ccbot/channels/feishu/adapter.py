@@ -97,30 +97,25 @@ class FeishuChannel(Channel):
         if not events:
             return
 
-        # 解析合并消息
         messages = []
         for event_json in events:
             try:
-                event = json.loads(event_json)
-                messages.append(event)
+                messages.append(json.loads(event_json))
             except Exception:
                 continue
 
         if not messages:
             return
 
-        # 提取合并后的内容
         first_event = messages[0]
         chat_id = first_event.get("message", {}).get("chat_id", "unknown")
 
-        # 如果有多条消息，合并内容
         if len(messages) > 1:
             merged_content = self._merge_messages(messages)
             first_event["_merged"] = True
             first_event["_merged_count"] = len(messages)
             first_event["_merged_content"] = merged_content
 
-        # 加入队列处理（使用闭包确保正确捕获事件）
         async def _handle() -> str:
             return await self._process_event(first_event)
 
@@ -148,26 +143,29 @@ class FeishuChannel(Channel):
         chat_id = message.get("chat_id", "")
         chat_type = message.get("chat_type", "")
         sender_id = sender.get("sender_id", {}).get("open_id", "unknown")
+        root_id = message.get("root_id")
 
         # 权限检查
         if not self._check_permissions(sender_id, chat_type):
             logger.debug("权限检查失败: sender_id={} chat_type={}", sender_id, chat_type)
             return ""
 
-        # 提取内容
-        content = self._extract_content(event)
+        # 提取内容（异步，支持图片/文件下载）
+        content = await self._extract_content(event)
         if not content:
             return ""
 
         reply_to = chat_id if chat_type == "group" else sender_id
 
+        # 线程回复目标：有 root_id 时回复到线程根，避免多层嵌套；否则回复原始消息
+        reply_msg_id = root_id or message_id
+
         logger.info("处理消息: sender={} chat={} content={}", sender_id, chat_id, content[:60])
 
-        # 添加表情表示正在处理（emoji 类型来自配置）
+        # 添加表情表示正在处理
         reaction_id = await self._add_reaction(message_id, self.config.react_emoji)
 
-        # 进度回调：根据 progress_mode 控制反馈粒度
-        # milestone=每3条批量发送, verbose=每条都发
+        # 进度回调
         progress_buffer: list[str] = []
         last_send_time = [time.time()]
         total_tools = [0]
@@ -176,9 +174,7 @@ class FeishuChannel(Channel):
         async def progress_cb(msg: str) -> None:
             logger.info("[{}] 进度: {}", chat_id, msg)
 
-            # 只收集工具调用消息（以 🔧 开头）
             if msg.startswith("🔧"):
-                # "🔧 Read: /path/to/file.py" → "3. Read: /path/to/file.py"
                 tool_info = msg.replace("🔧 ", "").strip()
                 if len(tool_info) > 60:
                     tool_info = tool_info[:57] + "..."
@@ -199,13 +195,13 @@ class FeishuChannel(Channel):
                             reply_to,
                             f"**{total_tools[0]} 工具调用**\n{batch}",
                             msg_type="progress",
+                            reply_to_message_id=reply_msg_id,
                         )
 
         try:
-            # 调用业务处理器
             reply = await self._handle_message(content, reply_to, sender_id, progress_cb)
 
-            # 发送剩余的进度消息
+            # 发送剩余进度
             if progress_buffer:
                 batch = "\n".join(progress_buffer)
                 with contextlib.suppress(Exception):
@@ -213,37 +209,31 @@ class FeishuChannel(Channel):
                         reply_to,
                         f"**{total_tools[0]} 工具调用**\n{batch}",
                         msg_type="progress",
+                        reply_to_message_id=reply_msg_id,
                     )
 
-            await self.send(reply_to, reply)
+            await self.send(reply_to, reply, reply_to_message_id=reply_msg_id)
             return reply
+
         except Exception as e:
             logger.exception("处理消息失败: {}", e)
             error_msg = f"处理失败: {e}"
-            await self.send(reply_to, error_msg, msg_type="error")
+            await self.send(reply_to, error_msg, msg_type="error", reply_to_message_id=reply_msg_id)
             return error_msg
+
         finally:
-            # 回复完成后移除处理中表情
             if reaction_id:
                 await self._remove_reaction(message_id, reaction_id)
 
     def _check_permissions(self, sender_id: str, chat_type: str) -> bool:
-        """检查权限。
-
-        策略优先级：chat_type 策略 → allow_from 白名单
-        - dm_policy:  "open"=通过白名单检查即可, "pairing"=必须在白名单中（忽略通配符）
-        - group_policy: "open"=允许所有群
-        """
-        # 群聊策略
+        """检查权限。"""
         if chat_type == "group" and self.config.group_policy != "open":
             logger.debug("群聊策略拒绝: group_policy={}", self.config.group_policy)
             return False
 
-        # 私聊 pairing 模式：必须在白名单中（不接受通配符）
         if chat_type == "p2p" and self.config.dm_policy == "pairing":
             return sender_id in self.config.allow_from
 
-        # 通用白名单检查
         allow_list = self.config.allow_from
         if not allow_list:
             logger.warning("allow_from 为空，拒绝所有访问")
@@ -252,11 +242,12 @@ class FeishuChannel(Channel):
             return True
         return sender_id in allow_list
 
-    def _extract_content(self, event: dict) -> str:
-        """提取消息内容。"""
+    async def _extract_content(self, event: dict) -> str:
+        """提取消息内容（异步，支持图片/文件下载）。"""
         message = event.get("message", {})
         msg_type = message.get("message_type", "")
         content_str = message.get("content", "{}")
+        message_id = message.get("message_id", "")
 
         try:
             content_json = json.loads(content_str)
@@ -269,14 +260,29 @@ class FeishuChannel(Channel):
 
         if msg_type == "text":
             return str(content_json.get("text", "")).strip()
+
         elif msg_type == "post":
             return self._extract_post_content(content_json)
 
-        # 其他类型简化处理
+        elif msg_type == "image":
+            image_key = content_json.get("image_key", "")
+            if image_key and message_id:
+                path = await self._download_resource(message_id, image_key, "image")
+                if path:
+                    return f"[图片已下载，路径: {path}，请用 Read 工具查看]"
+            return "[图片（下载失败）]"
+
+        elif msg_type == "file":
+            file_key = content_json.get("file_key", "")
+            file_name = content_json.get("file_name", "file")
+            if file_key and message_id:
+                path = await self._download_resource(message_id, file_key, "file", file_name)
+                if path:
+                    return f"[文件 '{file_name}' 已下载，路径: {path}，可用 Read/Bash 工具处理]"
+            return f"[文件 '{file_name}'（下载失败）]"
+
         type_map = {
-            "image": "[图片]",
             "audio": "[音频]",
-            "file": "[文件]",
             "sticker": "[表情]",
         }
         return type_map.get(msg_type, f"[{msg_type}]")
@@ -299,6 +305,55 @@ class FeishuChannel(Channel):
                 break
 
         return " ".join(texts).strip()
+
+    async def _download_resource(
+        self,
+        message_id: str,
+        file_key: str,
+        resource_type: str,
+        file_name: str = "",
+    ) -> str | None:
+        """下载飞书消息资源（图片/文件），返回本地文件路径。"""
+        if not self._client:
+            return None
+
+        from lark_oapi.api.im.v1 import GetMessageResourceRequest
+
+        try:
+            request = (
+                GetMessageResourceRequest.builder()
+                .message_id(message_id)
+                .file_key(file_key)
+                .type(resource_type)
+                .build()
+            )
+            # 使用异步版本，无需 run_in_executor
+            response = await self._client.im.v1.message_resource.aget(request)
+
+            if not response.success() or not response.file:
+                logger.warning("下载资源失败: code={} msg={}", response.code, response.msg)
+                return None
+
+            # 确保 tmp 目录存在
+            tmp_dir = Path.home() / ".ccbot" / "tmp"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+
+            # 清理 24h 前的旧文件
+            now = time.time()
+            for f in tmp_dir.iterdir():
+                if f.is_file() and now - f.stat().st_mtime > 86400:
+                    f.unlink(missing_ok=True)
+
+            fname = file_name or response.file_name or f"{resource_type}_{int(now)}"
+            dest = tmp_dir / f"{int(now * 1000)}_{fname}"
+            dest.write_bytes(response.file.read())
+
+            logger.info("资源下载完成: {} → {}", file_key, dest)
+            return str(dest)
+
+        except Exception as e:
+            logger.warning("下载资源出错: {}", e)
+            return None
 
     # ==================== Lark SDK 集成 ====================
 
@@ -369,7 +424,6 @@ class FeishuChannel(Channel):
 
         logger.info("飞书通道已启动（集成 Pipeline: Dedup → Debounce → Queue）")
 
-        # 保持运行
         while self._running:
             await asyncio.sleep(1)
 
@@ -377,38 +431,53 @@ class FeishuChannel(Channel):
         """停止飞书通道。"""
         self._running = False
 
-        # 停止 Pipeline
         await self._debounce.stop()
         await self._queue.stop()
 
-        # 持久化去重缓存
         await self._dedup.persist(Path.home() / ".ccbot" / "dedup", "feishu")
 
         logger.info("飞书通道已停止")
 
     async def send(
-        self, target: str, content: str, *, msg_type: str = "reply", **kwargs: Any
+        self,
+        target: str,
+        content: str,
+        *,
+        msg_type: str = "reply",
+        reply_to_message_id: str | None = None,
+        **kwargs: Any,
     ) -> None:
-        """发送消息。
-
-        渲染策略（参考 OpenClaw）：
-        - progress/error: 卡片(Schema 2.0) + 彩色 header
-        - 含代码块或表格: 卡片(Schema 2.0)，渲染效果更好
-        - 普通文本: post 消息 + md 标签，飞书原生 Markdown 渲染
+        """发送消息，自动分段处理长内容。
 
         Args:
-            target: 目标 ID（chat_id 或 open_id）
+            target: 目标 ID（chat_id 或 open_id），reply 模式下仅作为 fallback
             content: 消息内容（Markdown 格式）
             msg_type: 消息类型 - "reply"(默认), "progress"(青色header), "error"(红色header)
+            reply_to_message_id: 原始消息 ID，设置后以 thread 形式回复
         """
         if not self._client:
             return
 
-        from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+        for part in _split_content(content):
+            await self._send_single(
+                target, part, msg_type=msg_type, reply_to_message_id=reply_to_message_id
+            )
 
-        receive_id_type = "chat_id" if target.startswith("oc_") else "open_id"
+    async def _send_single(
+        self,
+        target: str,
+        content: str,
+        *,
+        msg_type: str = "reply",
+        reply_to_message_id: str | None = None,
+    ) -> None:
+        """发送单条消息（不分段）。
 
-        # 根据消息类型和内容选择渲染方式
+        渲染策略：
+        - progress/error: 卡片(Schema 2.0) + 彩色 header
+        - 含代码块或表格: 卡片(Schema 2.0)
+        - 普通文本: post + md 标签
+        """
         header_map = {
             "progress": ("⏳ 执行中", "turquoise"),
             "error": ("❌ 出错", "red"),
@@ -416,7 +485,6 @@ class FeishuChannel(Channel):
         use_card = msg_type in header_map or _should_use_card(content)
 
         if use_card:
-            # 卡片 Schema 2.0：代码块/表格渲染更好，进度/错误可带彩色 header
             card: dict[str, Any] = {
                 "schema": "2.0",
                 "config": {"wide_screen_mode": True},
@@ -433,28 +501,56 @@ class FeishuChannel(Channel):
             feishu_msg_type = "interactive"
             feishu_content = json.dumps(card, ensure_ascii=False)
         else:
-            # 普通文本：post + md 标签，飞书原生 Markdown 渲染
             post = {"zh_cn": {"content": [[{"tag": "md", "text": content}]]}}
             feishu_msg_type = "post"
             feishu_content = json.dumps(post, ensure_ascii=False)
 
         try:
-            request = (
-                CreateMessageRequest.builder()
-                .receive_id_type(receive_id_type)
-                .request_body(
-                    CreateMessageRequestBody.builder()
-                    .receive_id(target)
-                    .msg_type(feishu_msg_type)
-                    .content(feishu_content)
+            loop = asyncio.get_running_loop()
+
+            if reply_to_message_id:
+                # 以 thread 形式回复原始消息
+                from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
+
+                request = (
+                    ReplyMessageRequest.builder()
+                    .message_id(reply_to_message_id)
+                    .request_body(
+                        ReplyMessageRequestBody.builder()
+                        .content(feishu_content)
+                        .msg_type(feishu_msg_type)
+                        .reply_in_thread(True)
+                        .build()
+                    )
                     .build()
                 )
-                .build()
-            )
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(None, self._client.im.v1.message.create, request)
+                response = await loop.run_in_executor(
+                    None, self._client.im.v1.message.reply, request
+                )
+            else:
+                # 直接发送到 chat 或私聊
+                from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+
+                receive_id_type = "chat_id" if target.startswith("oc_") else "open_id"
+                request = (
+                    CreateMessageRequest.builder()
+                    .receive_id_type(receive_id_type)
+                    .request_body(
+                        CreateMessageRequestBody.builder()
+                        .receive_id(target)
+                        .msg_type(feishu_msg_type)
+                        .content(feishu_content)
+                        .build()
+                    )
+                    .build()
+                )
+                response = await loop.run_in_executor(
+                    None, self._client.im.v1.message.create, request
+                )
+
             if not response.success():
                 logger.error("发送失败: code={}, msg={}", response.code, response.msg)
+
         except Exception as e:
             logger.error("发送消息出错: {}", e)
 
@@ -470,13 +566,12 @@ class FeishuChannel(Channel):
             message = event.message
             sender = event.sender
 
-            # 跳过 bot 消息
             if sender.sender_type == "bot":
                 return
 
             message_id = message.message_id
 
-            # 群消息 require_mention 检查：未 @bot 则跳过
+            # 群消息 require_mention 检查
             if self.config.require_mention and message.chat_type == "group" and self._bot_open_id:
                 mentions = getattr(message, "mentions", None) or []
                 bot_mentioned = any(
@@ -493,7 +588,6 @@ class FeishuChannel(Channel):
                 logger.debug("重复消息已跳过: {}", message_id)
                 return
 
-            # 构造事件 JSON
             event_dict = {
                 "message": {
                     "message_id": message_id,
@@ -512,14 +606,14 @@ class FeishuChannel(Channel):
             }
             event_json = json.dumps(event_dict, ensure_ascii=False)
 
-            # 2. Debounce（控制命令会立即 flush）
+            # 2. Debounce
             await self._debounce.enqueue(event_json)
 
         except Exception as e:
             logger.exception("Pipeline 处理失败: {}", e)
 
     async def _add_reaction(self, message_id: str, emoji_type: str) -> str | None:
-        """添加表情反应，返回 reaction_id（用于后续删除）。"""
+        """添加表情反应，返回 reaction_id。"""
         if not self._client:
             return None
 
@@ -595,7 +689,6 @@ class FeishuChannel(Channel):
 
 # ── 模块级辅助函数 ──
 
-# 匹配 Markdown 代码块或表格（参考 OpenClaw shouldUseCard）
 _RE_CODE_BLOCK = re.compile(r"```[\s\S]*?```")
 _RE_TABLE = re.compile(r"\|.+\|[\r\n]+\|[-:| ]+\|")
 
@@ -603,3 +696,73 @@ _RE_TABLE = re.compile(r"\|.+\|[\r\n]+\|[-:| ]+\|")
 def _should_use_card(text: str) -> bool:
     """检测内容是否包含代码块或表格，需要卡片渲染。"""
     return bool(_RE_CODE_BLOCK.search(text) or _RE_TABLE.search(text))
+
+
+def _split_content(text: str, max_len: int = 3000) -> list[str]:
+    """将长文本分割为多段，优先在段落边界切割，不在代码块中间切割。
+
+    Args:
+        text: 原始文本
+        max_len: 每段最大字符数（默认 3000，飞书消息限制约 4000）
+
+    Returns:
+        分割后的文本列表；超过一段时在每段末尾附加 `[n/total]` 页码。
+    """
+    if len(text) <= max_len:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+
+    while len(remaining) > max_len:
+        pos = _find_split_pos(remaining, max_len)
+        if pos <= 0:
+            # 找不到合适位置时硬切
+            chunks.append(remaining[:max_len])
+            remaining = remaining[max_len:]
+        else:
+            chunks.append(remaining[:pos])
+            remaining = remaining[pos:].lstrip("\n")
+
+    if remaining:
+        chunks.append(remaining)
+
+    # 多段时附加页码
+    if len(chunks) > 1:
+        total = len(chunks)
+        chunks = [f"{c}\n\n`[{i + 1}/{total}]`" for i, c in enumerate(chunks)]
+
+    return chunks
+
+
+def _find_split_pos(text: str, max_len: int) -> int:
+    """在 max_len 内找最后一个安全的段落切割点（不在代码块内）。
+
+    优先找 \\n\\n（段落分隔），其次找 \\n（行分隔）。
+    代码块（```...```）内部不切割。
+    """
+    in_code = False
+    last_para = -1
+    last_line = -1
+    i = 0
+
+    while i < max_len and i < len(text):
+        # 检测代码块开关
+        if text[i : i + 3] == "```":
+            in_code = not in_code
+            i += 3
+            continue
+
+        if not in_code:
+            if text[i : i + 2] == "\n\n":
+                last_para = i
+            elif text[i] == "\n":
+                last_line = i
+
+        i += 1
+
+    if last_para > 0:
+        return last_para
+    if last_line > 0:
+        return last_line
+    return -1
