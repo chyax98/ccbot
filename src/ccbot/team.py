@@ -13,10 +13,15 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from uuid import uuid4
 
 from loguru import logger
 
 from ccbot.agent import CCBotAgent
+from ccbot.comm.bus import InMemoryBus
+from ccbot.comm.channel import WorkerChannel
+from ccbot.comm.context import InMemoryContext
+from ccbot.comm.server import CommServer
 from ccbot.config import AgentConfig
 from ccbot.models import DispatchPayload, DispatchResult, WorkerResult
 from ccbot.workspace import WorkspaceManager
@@ -33,7 +38,7 @@ _SUPERVISOR_PROMPT = """\
     "name": "worker 唯一名称（如 frontend / backend / reviewer）",
     "cwd": "/绝对路径/工作目录",
     "task": "详细任务描述",
-    "model": "claude-sonnet-4-6",
+    "model": "sonnet",
     "max_turns": 30
   }
 ]
@@ -45,6 +50,9 @@ _SUPERVISOR_PROMPT = """\
 - model / max_turns 可省略（默认继承 Supervisor 配置）
 - dispatch 块之外可以写给用户看的说明，但不要在 dispatch 块内加注释
 - 收到 worker 结果后，综合成清晰的汇报返回给用户
+
+Worker 通信：各 Worker 配备 MCP 通信工具（ccbot-comm），可互相发消息、
+共享状态、向你汇报进度。Worker 间的通信记录会在结果中一并呈现。
 """
 
 _WORKER_PROMPT = """\
@@ -131,68 +139,135 @@ class AgentTeam:
         on_progress: Callable[[str], Awaitable[None]] | None,
     ) -> DispatchResult:
         """并行执行所有 worker 任务（受 max_workers 限制），返回结构化结果。"""
+        session_id = f"{chat_id}:{uuid4().hex[:8]}"
+        worker_names = [t.name for t in dispatch.tasks]
         semaphore = asyncio.Semaphore(self._config.max_workers)
 
-        async def run_one(task_def: WorkerResult | object) -> WorkerResult:
-            """执行单个 worker 任务，带并发控制和完整生命周期管理。"""
-            from ccbot.models import WorkerTask
+        # 1. 创建通信基础设施
+        bus = InMemoryBus()
+        context = InMemoryContext()
+        await bus.create_session(session_id, worker_names)
+        await context.create_session(session_id)
 
-            assert isinstance(task_def, WorkerTask)
+        # 2. 注册上报回调 → on_progress
+        async def _on_report(name: str, msg: object) -> None:
+            from ccbot.models.comm import CommMessage
 
-            cfg = AgentConfig(
-                model=task_def.model or self._config.model or "",
-                cwd=str(task_def.cwd),
-                system_prompt=_WORKER_PROMPT.format(cwd=task_def.cwd),
-                max_turns=task_def.max_turns,
-            )
-            worker = CCBotAgent(cfg)
+            assert isinstance(msg, CommMessage)
+            text = f"[{name}] {msg.subject}: {msg.body[:200]}"
+            logger.info("[{}] worker 汇报: {}", chat_id, text)
+            if on_progress:
+                await on_progress(text)
 
-            async def worker_progress(msg: str) -> None:
-                tagged = f"[{task_def.name}] {msg}"
-                logger.info("[{}] {}", chat_id, tagged)
-                if on_progress:
-                    await on_progress(tagged)
+        bus.on_report(_on_report)
 
-            logger.info(
-                "[{}] 启动 worker name={} cwd={} model={}",
-                chat_id,
-                task_def.name,
-                task_def.cwd,
-                task_def.model or "default",
-            )
+        # 3. 启动 CommServer
+        server = CommServer(bus, context, session_id)
+        port = await server.start()
+        logger.info("[{}] CommServer 已启动: port={}", chat_id, port)
 
-            async with semaphore:
-                await worker.start()
-                try:
-                    result_text = await worker.ask(
-                        f"{chat_id}:{task_def.name}", task_def.task, on_progress=worker_progress
-                    )
-                    logger.info(
-                        "[{}] worker 完成 name={} ({} chars)",
-                        chat_id,
-                        task_def.name,
-                        len(result_text),
-                    )
+        try:
 
+            async def run_one(task_def: WorkerResult | object) -> WorkerResult:
+                """执行单个 worker 任务，带并发控制和完整生命周期管理。"""
+                from ccbot.models import WorkerTask
+
+                assert isinstance(task_def, WorkerTask)
+
+                # 创建通信通道
+                peer_names = [n for n in worker_names if n != task_def.name]
+                channel = WorkerChannel(server, session_id, task_def.name, peer_names)
+
+                cfg = AgentConfig(
+                    model=task_def.model or self._config.model or "",
+                    cwd=str(task_def.cwd),
+                    system_prompt=_WORKER_PROMPT.format(cwd=task_def.cwd)
+                    + channel.system_prompt_addition,
+                    max_turns=task_def.max_turns,
+                    mcp_servers={**self._config.mcp_servers, **channel.mcp_servers},
+                    env=self._config.env,
+                )
+                worker = CCBotAgent(cfg)
+
+                async def worker_progress(msg: str) -> None:
+                    tagged = f"[{task_def.name}] {msg}"
+                    logger.info("[{}] {}", chat_id, tagged)
                     if on_progress:
-                        await on_progress(f"✅ {task_def.name} 完成")
+                        await on_progress(tagged)
 
-                    return WorkerResult.from_result(task_def.name, result_text)
-                except Exception as e:
-                    logger.error("[{}] worker 失败 name={}: {}", chat_id, task_def.name, e)
+                logger.info(
+                    "[{}] 启动 worker name={} cwd={} model={}",
+                    chat_id,
+                    task_def.name,
+                    task_def.cwd,
+                    task_def.model or "default",
+                )
 
-                    if on_progress:
-                        error_msg = str(e)[:80]
-                        await on_progress(f"❌ {task_def.name} 失败: {error_msg}")
+                async with semaphore:
+                    await worker.start()
+                    try:
+                        result_text = await worker.ask(
+                            f"{chat_id}:{task_def.name}",
+                            task_def.task,
+                            on_progress=worker_progress,
+                        )
+                        logger.info(
+                            "[{}] worker 完成 name={} ({} chars)",
+                            chat_id,
+                            task_def.name,
+                            len(result_text),
+                        )
 
-                    return WorkerResult.from_exception(task_def.name, e)
-                finally:
-                    await worker.stop()
+                        if on_progress:
+                            await on_progress(f"[{task_def.name}] 完成")
 
-        # 并行执行所有 worker（受 semaphore 限制并发数）
-        worker_results = await asyncio.gather(
-            *[run_one(task) for task in dispatch.tasks],
-            return_exceptions=False,  # 异常在 run_one 内部捕获
-        )
+                        return WorkerResult.from_result(task_def.name, result_text)
+                    except Exception as e:
+                        logger.error("[{}] worker 失败 name={}: {}", chat_id, task_def.name, e)
 
-        return DispatchResult(workers=list(worker_results))
+                        if on_progress:
+                            error_msg = str(e)[:80]
+                            await on_progress(f"[{task_def.name}] 失败: {error_msg}")
+
+                        return WorkerResult.from_exception(task_def.name, e)
+                    finally:
+                        await worker.stop()
+
+            # 并行执行所有 worker（受 semaphore 限制并发数）
+            worker_results = await asyncio.gather(
+                *[run_one(task) for task in dispatch.tasks],
+                return_exceptions=False,  # 异常在 run_one 内部捕获
+            )
+
+            # 4. 收集通信记录 + 状态快照
+            comm_summary = await _build_comm_summary(bus, context, session_id)
+
+            return DispatchResult(workers=list(worker_results), comm_summary=comm_summary)
+        finally:
+            await server.stop()
+            await bus.close_session(session_id)
+            await context.close_session(session_id)
+
+
+async def _build_comm_summary(bus: InMemoryBus, context: InMemoryContext, session_id: str) -> str:
+    """构建通信摘要文本。"""
+    history = await bus.get_history(session_id)
+    snapshot = await context.snapshot(session_id)
+
+    if not history and not snapshot:
+        return ""
+
+    lines: list[str] = []
+    if history:
+        lines.append(f"通信记录（共 {len(history)} 条）：")
+        for msg in history:
+            direction = f"{msg.source}→{msg.target or 'all'}"
+            lines.append(f"- [{msg.type.value}] {direction}: {msg.subject}")
+            if msg.body:
+                body_preview = msg.body[:100] + ("..." if len(msg.body) > 100 else "")
+                lines.append(f"  {body_preview}")
+
+    if snapshot:
+        lines.append(f"\n共享状态快照：\n{snapshot}")
+
+    return "\n".join(lines)

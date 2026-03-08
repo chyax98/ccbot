@@ -175,6 +175,8 @@ class AgentPool:
 
     async def _create_client(self, chat_id: str) -> ClaudeSDKClient:
         """创建新的 ClaudeSDKClient。"""
+        import os
+
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
         # 构建选项
@@ -202,8 +204,8 @@ class AgentPool:
             kwargs["max_turns"] = self._config.max_turns
         if self._config.mcp_servers:
             kwargs["mcp_servers"] = self._config.mcp_servers
-        if self._config.env:
-            kwargs["env"] = self._config.env
+        # config.env 优先于系统环境变量：系统 env 作为 base，config 覆盖
+        kwargs["env"] = {**os.environ, **self._config.env}
 
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
