@@ -202,10 +202,16 @@ class AgentPool:
             kwargs["model"] = self._config.model
         if self._config.max_turns:
             kwargs["max_turns"] = self._config.max_turns
+        if self._config.allowed_tools:
+            kwargs["allowed_tools"] = self._config.allowed_tools
         if self._config.mcp_servers:
             kwargs["mcp_servers"] = self._config.mcp_servers
         # config.env 优先于系统环境变量：系统 env 作为 base，config 覆盖
         kwargs["env"] = {**os.environ, **self._config.env}
+        # 有自定义 env 时跳过 ~/.claude/settings.json（user settings 里可能有
+        # 竞争的 env，如 ANTHROPIC_BASE_URL），只加载 project/local settings
+        if self._config.env:
+            kwargs["setting_sources"] = ["project", "local"]
 
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
