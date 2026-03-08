@@ -19,6 +19,7 @@ from ccbot.config import AgentConfig
 from ccbot.memory import MemoryStore
 from ccbot.observability import configure_langsmith_once
 from ccbot.runtime.profiles import RuntimeRole, build_sdk_options
+from ccbot.runtime.sdk_utils import build_stderr_logger
 from ccbot.workspace import WorkspaceManager
 
 if TYPE_CHECKING:
@@ -161,6 +162,7 @@ class AgentPool:
             kwargs["resume"] = resume_session_id
             kwargs["continue_conversation"] = True
 
+        kwargs["stderr"] = build_stderr_logger(f"[sdk:{self._role.value}:{chat_id}]")
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
         await client.connect()

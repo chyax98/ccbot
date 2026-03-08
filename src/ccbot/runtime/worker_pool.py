@@ -21,7 +21,7 @@ from ccbot.config import AgentConfig
 from ccbot.models import WorkerTask
 from ccbot.observability import configure_langsmith_once
 from ccbot.runtime.profiles import RuntimeRole, build_sdk_options
-from ccbot.runtime.sdk_utils import query_and_collect
+from ccbot.runtime.sdk_utils import build_stderr_logger, query_and_collect
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -193,6 +193,7 @@ class WorkerPool:
             max_turns=task.max_turns,
         )
 
+        kwargs["stderr"] = build_stderr_logger(f"[sdk:worker:{task.name}]")
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
         await client.connect()
