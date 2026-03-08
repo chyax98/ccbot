@@ -21,8 +21,11 @@ class AgentConfig(BaseModel):
     max_turns: int = 10
 
     # SDK 配置
+    # allowed_tools: 白名单覆盖（通常为空，工具权限由 .claude/settings.json 管理）
     allowed_tools: list[str] = Field(default_factory=list)
     mcp_servers: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # 注入 claude 子进程的额外环境变量（如 ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL）
+    env: dict[str, str] = Field(default_factory=dict)
 
     # Heartbeat 配置
     heartbeat_enabled: bool = True

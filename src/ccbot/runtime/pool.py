@@ -200,10 +200,10 @@ class AgentPool:
             kwargs["model"] = self._config.model
         if self._config.max_turns:
             kwargs["max_turns"] = self._config.max_turns
-        if self._config.allowed_tools:
-            kwargs["allowed_tools"] = self._config.allowed_tools
         if self._config.mcp_servers:
             kwargs["mcp_servers"] = self._config.mcp_servers
+        if self._config.env:
+            kwargs["env"] = self._config.env
 
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
