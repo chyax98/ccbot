@@ -23,7 +23,9 @@ ccbot 是基于 Claude Agent SDK 的个人 AI 助手，采用 OpenClaw 风格的
 │  │ - 复用       │  │  │         Worker Pool                │  │ │
 │  │ - 空闲释放   │  │  │  ┌─────┐ ┌─────┐ ┌─────┐          │  │ │
 │  └──────────────┘  │  │  │Worker│ │Worker│ │Worker│          │  │ │
-│                    │  │  └─────┘ └─────┘ └─────┘          │  │ │
+│                    │  │  └──┬──┘ └──┬──┘ └──┬──┘          │  │ │
+│                    │  │     └───────┼───────┘              │  │ │
+│                    │  │        comm (MCP)                  │  │ │
 │                    │  └────────────────────────────────────┘  │ │
 │                    └──────────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────────┤
@@ -92,11 +94,11 @@ class AgentPool:
 
     # 特性
     - 按 chat_id 复用 client
-    - 30 分钟空闲自动释放
+    - 8 小时空闲自动释放（28800s，继承 config.idle_timeout）
     - 优雅关闭时保存历史
 ```
 
-**对比旧版**：旧版 `NanobotAgent` 直接管理 sessions，现在由 `AgentPool` 统一管理。
+**对比旧版**：旧版直接管理 sessions，现在由 `AgentPool` 统一管理。
 
 #### AgentTeam - 多 Agent 调度
 
@@ -114,6 +116,21 @@ class AgentTeam:
 ```
 
 **设计理由**：充分利用 Claude Agent SDK 原生能力，无需外部进程调度。
+
+#### Worker 通信层（comm）
+
+位于 `src/ccbot/comm/`，为 Worker 提供进程内通信能力。
+
+```python
+# 核心组件
+InMemoryBus        # 消息路由：DIRECT/BROADCAST/REPORT/CLARIFY
+InMemoryContext    # 共享状态：Worker 间 key-value 读写
+WorkerChannel      # 为每个 Worker 生成 MCP 服务器配置
+```
+
+通信通过 SDK 进程内 MCP 服务器实现，零网络开销。每个 Worker 自动获得 7 个 MCP 工具（`ccbot_send_message`、`ccbot_read_messages` 等），可以与其他 Worker 交换消息和共享状态。
+
+详见 [通信模块文档](COMM.md)。
 
 ### 3. Channel 抽象
 
@@ -210,6 +227,7 @@ class Config:
 | 调度 | Claude Agent SDK | 原生支持多 Agent，无需自建 |
 | 配置 | Pydantic Settings | 类型安全，环境变量自动映射 |
 | 日志 | loguru | 结构化日志，自动轮转 |
+| Worker 通信 | 进程内 MCP (SDK) | 零开销，后端可替换为 Redis |
 
 ## 扩展性
 

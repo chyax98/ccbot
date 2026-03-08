@@ -1,6 +1,6 @@
 # A2A 协议支持
 
-nanobot 现已支持 **A2A (Agent-to-Agent)** 协议，允许多个 nanobot 实例或其他 AI Agent 跨机器通信。
+ccbot 现已支持 **A2A (Agent-to-Agent)** 协议，允许多个 ccbot 实例或其他 AI Agent 跨机器通信。
 
 ## 什么是 A2A？
 
@@ -25,7 +25,7 @@ A2A 是 Google 提出的 Agent-to-Agent 通信协议，基于：
     "app_secret": "xxx"
   },
   "agent": {
-    "workspace": "~/.nanobot/supervisor",
+    "workspace": "~/.ccbot/supervisor",
     "model": "claude-opus-4-6"
   }
 }
@@ -43,7 +43,7 @@ A2A 是 Google 提出的 Agent-to-Agent 通信协议，基于：
     "description": "Specialized worker agent"
   },
   "agent": {
-    "workspace": "~/.nanobot/worker",
+    "workspace": "~/.ccbot/worker",
     "model": "claude-sonnet-4-6"
   }
 }
@@ -56,7 +56,7 @@ A2A 是 Google 提出的 Agent-to-Agent 通信协议，基于：
 #### 启动 Worker（只提供 HTTP 服务）
 
 ```bash
-uv run nanobot serve --config worker_config.json
+uv run ccbot serve --config worker_config.json
 ```
 
 Worker 将在 `http://0.0.0.0:8765` 启动，**不连接飞书**。
@@ -64,7 +64,7 @@ Worker 将在 `http://0.0.0.0:8765` 启动，**不连接飞书**。
 #### 启动 Supervisor（连接飞书 + 调度 Workers）
 
 ```bash
-uv run nanobot run --config supervisor_config.json
+uv run ccbot run --config supervisor_config.json
 ```
 
 Supervisor 连接飞书，接收用户消息，通过 HTTP 调用 Workers。
@@ -80,7 +80,7 @@ curl http://localhost:8765/.well-known/agent.json
 响应：
 ```json
 {
-  "name": "my-nanobot",
+  "name": "my-ccbot",
   "description": "My personal AI assistant",
   "version": "1.0.0",
   "capabilities": ["message/send", "message/stream"],
@@ -94,8 +94,8 @@ curl http://localhost:8765/.well-known/agent.json
 #### 同步消息（message/send）
 
 ```bash
-curl -X POST http://localhost:8765/rpc \\
-  -H "Content-Type: application/json" \\
+curl -X POST http://localhost:8765/rpc \
+  -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
     "method": "message/send",
@@ -113,7 +113,7 @@ curl -X POST http://localhost:8765/rpc \\
   "jsonrpc": "2.0",
   "result": {
     "contextId": "my-session-1",
-    "message": "你好！我是 nanobot..."
+    "message": "你好！我是 ccbot..."
   },
   "id": 1
 }
@@ -122,8 +122,8 @@ curl -X POST http://localhost:8765/rpc \\
 #### 流式消息（message/stream）
 
 ```bash
-curl -X POST http://localhost:8765/rpc \\
-  -H "Content-Type: application/json" \\
+curl -X POST http://localhost:8765/rpc \
+  -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
     "method": "message/stream",
@@ -223,7 +223,7 @@ payload = {
 
 ```bash
 # 启动服务器（终端 1）
-uv run nanobot serve --config examples/a2a_config.json
+uv run ccbot serve --config examples/a2a_config.json
 
 # 运行测试（终端 2）
 uv run python examples/test_a2a.py
@@ -231,7 +231,7 @@ uv run python examples/test_a2a.py
 
 ## 架构优势
 
-1. **跨机器通信**：不同机器上的 nanobot 可以互相调用
+1. **跨机器通信**：不同机器上的 ccbot 可以互相调用
 2. **持久会话**：`contextId` 映射到 `chat_id`，支持多轮对话
 3. **实时进度**：SSE streaming 提供工具调用进度
 4. **标准协议**：基于 JSON-RPC 2.0，易于集成
@@ -244,7 +244,7 @@ uv run python examples/test_a2a.py
 | `a2a.enabled` | bool | false | 是否启用 A2A 服务器 |
 | `a2a.host` | str | "0.0.0.0" | 监听地址 |
 | `a2a.port` | int | 8765 | 监听端口 |
-| `a2a.name` | str | "nanobot" | Agent 名称 |
+| `a2a.name` | str | "ccbot" | Agent 名称 |
 | `a2a.description` | str | "..." | Agent 描述 |
 
 ## 安全建议

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEFAULT_WORKSPACE = str(Path.home() / ".ccbot" / "workspace")
 _DEFAULT_CONFIG = Path.home() / ".ccbot" / "config.json"
@@ -88,27 +88,13 @@ class Config(BaseSettings):
 
 
 def load_config(path: Path = _DEFAULT_CONFIG) -> Config:
-    """加载配置：JSON 文件为主配置，CCBOT_* 环境变量用于部署时覆盖。
-
-    优先级：JSON 文件 > CCBOT_* 环境变量 > 默认值
-    """
+    """JSON 文件 > CCBOT_* 环境变量 > 默认值"""
     from pydantic_settings import JsonConfigSettingsSource
-
-    json_path = path
 
     class _Config(Config):
         @classmethod
-        def settings_customise_sources(  # type: ignore[override]
-            cls,
-            settings_cls: type[BaseSettings],
-            init_settings: PydanticBaseSettingsSource,
-            env_settings: PydanticBaseSettingsSource,
-            **kwargs: Any,
-        ) -> tuple[PydanticBaseSettingsSource, ...]:
-            sources: list[PydanticBaseSettingsSource] = [init_settings]
-            if json_path.exists():
-                sources.append(JsonConfigSettingsSource(settings_cls, json_file=json_path))
-            sources.append(env_settings)
-            return tuple(sources)
+        def settings_customise_sources(cls, settings_cls, init_settings, env_settings, **_):  # type: ignore[override]
+            json_source = (JsonConfigSettingsSource(settings_cls, json_file=path),) if path.exists() else ()
+            return (init_settings, *json_source, env_settings)
 
     return _Config()

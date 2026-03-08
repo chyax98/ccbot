@@ -39,10 +39,10 @@ export NANOBOT_FEISHU__APP_SECRET=xxx
 ```
 
 **v2**:
-环境变量前缀保持不变（向后兼容），但推荐使用新名称：
+v2 使用 `CCBOT_` 前缀，不再支持 `NANOBOT_` 前缀：
 ```bash
-export NANOBOT_FEISHU__APP_ID=xxx  # 仍支持
-export NANOBOT_FEISHU__APP_SECRET=xxx
+export CCBOT_FEISHU__APP_ID=xxx
+export CCBOT_FEISHU__APP_SECRET=xxx
 ```
 
 ### 3. Python 导入
@@ -57,7 +57,7 @@ from nanobot.agent import NanobotAgent
 ```python
 from ccbot.feishu import FeishuBot      # 旧版兼容
 from ccbot.channels.feishu import FeishuChannel  # 新版推荐
-from ccbot.agent import NanobotAgent
+from ccbot.agent import CCBotAgent
 from ccbot.channels.cli import CLIChannel
 ```
 

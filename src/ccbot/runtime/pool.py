@@ -175,7 +175,7 @@ class AgentPool:
 
     async def _create_client(self, chat_id: str) -> ClaudeSDKClient:
         """创建新的 ClaudeSDKClient。"""
-        import os
+        import json
 
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
@@ -206,11 +206,10 @@ class AgentPool:
             kwargs["allowed_tools"] = self._config.allowed_tools
         if self._config.mcp_servers:
             kwargs["mcp_servers"] = self._config.mcp_servers
-        # config.env 优先于系统环境变量：系统 env 作为 base，config 覆盖
-        kwargs["env"] = {**os.environ, **self._config.env}
-        # 有自定义 env 时跳过 ~/.claude/settings.json（user settings 里可能有
-        # 竞争的 env，如 ANTHROPIC_BASE_URL），只加载 project/local settings
         if self._config.env:
+            # 通过 settings JSON 注入 env（Claude 应用层覆盖，优先级高于 ~/.claude/settings.json）
+            kwargs["settings"] = json.dumps({"env": self._config.env})
+            # 同时跳过 user settings，避免 ~/.claude/settings.json 的 env 段干扰
             kwargs["setting_sources"] = ["project", "local"]
 
         options = ClaudeAgentOptions(**kwargs)

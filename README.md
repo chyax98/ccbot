@@ -104,7 +104,7 @@ Supervisor 分析 → <dispatch>?
 综合结果 → 返回回复
 ```
 
-详见 [架构文档](docs/ARCHITECTURE.md) 和 [迁移指南](docs/MIGRATION.md)。
+详见 [架构文档](docs/ARCHITECTURE.md)、[通信模块](docs/COMM.md) 和 [迁移指南](docs/MIGRATION.md)。
 
 ## 多 Agent 调度
 
@@ -128,22 +128,21 @@ Supervisor 自动识别适合并行的任务，输出 `<dispatch>` 计划：
 </dispatch>
 ```
 
-Workers 并行执行，结果自动综合后返回。
+Workers 并行执行，结果自动综合后返回。Workers 之间可通过内置通信模块（MCP 工具）互相发消息、共享状态，详见 [通信模块文档](docs/COMM.md)。
 
 ## Workspace 结构
 
 ```
 ~/.ccbot/workspace/
+  .claude/
+    CLAUDE.md         # Agent 行为准则（始终载入 system_prompt）
+    settings.json     # Claude SDK 权限配置
+    skills/
+      <name>/SKILL.md # 自定义 skills
   memory/
-    MEMORY.md       # 长期记忆（始终载入 system_prompt）
-    HISTORY.md      # 历史日志（可 grep 查询）
-  SOUL.md           # Agent 个性
-  AGENTS.md         # 多 Agent 协作指令
-  USER.md           # 用户偏好
-  TOOLS.md          # 工具使用指南
-  HEARTBEAT.md      # 定时任务
-  skills/
-    <name>/SKILL.md # 自定义 skills
+    MEMORY.md         # 长期记忆（始终载入 system_prompt）
+    HISTORY.md        # 历史日志（可 grep 查询）
+  HEARTBEAT.md        # 定时任务
 ```
 
 ## CLI 命令
@@ -174,9 +173,13 @@ Workers 并行执行，结果自动综合后返回。
     "model": "claude-sonnet-4-6",
     "max_turns": 10,
     "workspace": "~/.ccbot/workspace",
+    "max_turns": 10,
+    "idle_timeout": 28800,
+    "max_workers": 4,
     "heartbeat_enabled": true,
     "heartbeat_interval": 1800,
-    "mcp_servers": {}
+    "mcp_servers": {},
+    "env": {}
   },
   "a2a": {
     "enabled": false,
@@ -188,12 +191,12 @@ Workers 并行执行，结果自动综合后返回。
 }
 ```
 
-环境变量优先级更高：
+配置加载优先级：`JSON 文件 > CCBOT_* 环境变量 > 默认值`
 
 ```bash
-export ccbot_FEISHU__APP_ID=cli_xxx
-export ccbot_FEISHU__APP_SECRET=xxx
-export ccbot_AGENT__MODEL=claude-opus-4-6
+export CCBOT_FEISHU__APP_ID=cli_xxx
+export CCBOT_FEISHU__APP_SECRET=xxx
+export CCBOT_AGENT__MODEL=claude-opus-4-6
 ```
 
 ## 开发
@@ -207,7 +210,7 @@ uv run pytest
 
 # 代码检查
 uv run ruff check .
-uv run mypy ccbot
+uv run mypy src/ccbot
 ```
 
 ## 许可

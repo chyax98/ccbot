@@ -4,32 +4,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.types import CallToolRequest, CallToolRequestParams, ListToolsRequest
-
 from ccbot.comm.bus import InMemoryBus
 from ccbot.comm.context import InMemoryContext
-from ccbot.comm.server import create_worker_mcp_server
+from ccbot.comm.server import _make_worker_tools, create_worker_mcp_server
 
 
-async def _list_tools(server) -> list[str]:
-    """获取 MCP 服务器注册的工具名列表。"""
-    handler = server.request_handlers[ListToolsRequest]
-    result = await handler(ListToolsRequest(method="tools/list", params=None))
-    return [t.name for t in result.root.tools]
+def _tool_map(bus: InMemoryBus, ctx: InMemoryContext, session_id: str, name: str) -> dict:
+    """创建 {tool_name: SdkMcpTool} 映射，直接调用 handler 无需 MCP 协议。"""
+    tools = _make_worker_tools(bus, ctx, session_id, name)
+    return {t.name: t for t in tools}
 
 
-async def _call(server, name: str, args: dict[str, Any] | None = None) -> str:
-    """调用 MCP 工具并返回文本结果。"""
+async def _call(tools: dict, name: str, args: dict[str, Any] | None = None) -> str:
+    """调用指定工具，返回文本内容。"""
     if args is None:
         args = {}
-    handler = server.request_handlers[CallToolRequest]
-    result = await handler(
-        CallToolRequest(
-            method="tools/call",
-            params=CallToolRequestParams(name=name, arguments=args),
-        )
-    )
-    return " ".join(c.text for c in result.root.content if hasattr(c, "text"))
+    result = await tools[name].handler(args)
+    return " ".join(c["text"] for c in result["content"] if c.get("type") == "text")
 
 
 def test_create_worker_mcp_server_returns_sdk_config():
@@ -44,14 +35,13 @@ def test_create_worker_mcp_server_returns_sdk_config():
 
 
 async def test_tools_registered():
-    """MCP 服务器注册了全部 7 个工具。"""
+    """_make_worker_tools 返回全部 7 个工具。"""
     bus = InMemoryBus()
     ctx = InMemoryContext()
     await bus.create_session("s1", ["alice", "bob"])
     await ctx.create_session("s1")
 
-    server = create_worker_mcp_server(bus, ctx, "s1", "alice")["instance"]
-    tool_names = set(await _list_tools(server))
+    tools = _tool_map(bus, ctx, "s1", "alice")
     expected = {
         "ccbot_send_message",
         "ccbot_read_messages",
@@ -61,26 +51,24 @@ async def test_tools_registered():
         "ccbot_list_shared",
         "ccbot_report_progress",
     }
-    assert expected == tool_names
+    assert expected == set(tools.keys())
 
     await bus.close_session("s1")
     await ctx.close_session("s1")
 
 
 async def test_send_and_read_messages():
-    """通过 MCP 工具发送和读取消息。"""
+    """通过工具发送和读取消息。"""
     bus = InMemoryBus()
     ctx = InMemoryContext()
     await bus.create_session("s1", ["alice", "bob"])
     await ctx.create_session("s1")
 
-    alice = create_worker_mcp_server(bus, ctx, "s1", "alice")["instance"]
-    bob = create_worker_mcp_server(bus, ctx, "s1", "bob")["instance"]
+    alice = _tool_map(bus, ctx, "s1", "alice")
+    bob = _tool_map(bus, ctx, "s1", "bob")
 
     # Alice 给 Bob 发消息
-    result = await _call(
-        alice, "ccbot_send_message", {"to": "bob", "subject": "hello", "body": "hi bob"}
-    )
+    result = await _call(alice, "ccbot_send_message", {"to": "bob", "subject": "hello", "body": "hi bob"})
     assert "消息已发送" in result
 
     # Bob 读消息
@@ -97,14 +85,14 @@ async def test_send_and_read_messages():
 
 
 async def test_shared_context_via_tools():
-    """通过 MCP 工具读写共享状态。"""
+    """通过工具读写共享状态。"""
     bus = InMemoryBus()
     ctx = InMemoryContext()
     await bus.create_session("s1", ["alice", "bob"])
     await ctx.create_session("s1")
 
-    alice = create_worker_mcp_server(bus, ctx, "s1", "alice")["instance"]
-    bob = create_worker_mcp_server(bus, ctx, "s1", "bob")["instance"]
+    alice = _tool_map(bus, ctx, "s1", "alice")
+    bob = _tool_map(bus, ctx, "s1", "bob")
 
     # Alice 设置共享状态
     result = await _call(alice, "ccbot_set_shared", {"key": "result", "value": "done"})
@@ -129,8 +117,8 @@ async def test_list_workers():
     await bus.create_session("s1", ["alice", "bob", "charlie"])
     await ctx.create_session("s1")
 
-    server = create_worker_mcp_server(bus, ctx, "s1", "alice")["instance"]
-    result = await _call(server, "ccbot_list_workers")
+    tools = _tool_map(bus, ctx, "s1", "alice")
+    result = await _call(tools, "ccbot_list_workers")
     assert "alice" in result
     assert "bob" in result
     assert "charlie" in result
@@ -153,8 +141,8 @@ async def test_report_progress():
 
     bus.on_report(on_report)
 
-    server = create_worker_mcp_server(bus, ctx, "s1", "alice")["instance"]
-    result = await _call(server, "ccbot_report_progress", {"status": "50%", "details": "halfway"})
+    tools = _tool_map(bus, ctx, "s1", "alice")
+    result = await _call(tools, "ccbot_report_progress", {"status": "50%", "details": "halfway"})
     assert "已汇报" in result
     assert len(reports) == 1
     assert reports[0][0] == "alice"
@@ -170,12 +158,10 @@ async def test_worker_identity_baked_in():
     await bus.create_session("s1", ["alice", "bob"])
     await ctx.create_session("s1")
 
-    alice = create_worker_mcp_server(bus, ctx, "s1", "alice")["instance"]
+    alice = _tool_map(bus, ctx, "s1", "alice")
 
     # Alice 发广播 — source 自动为 "alice"
-    await _call(
-        alice, "ccbot_send_message", {"to": "", "subject": "broadcast", "body": "hello all"}
-    )
+    await _call(alice, "ccbot_send_message", {"to": "", "subject": "broadcast", "body": "hello all"})
 
     # Bob 收到的消息 source 应该是 alice
     messages = await bus.receive("s1", "bob")

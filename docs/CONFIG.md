@@ -2,30 +2,34 @@
 
 ## 配置文件位置
 
-nanobot 支持多种配置方式，按优先级从高到低：
+ccbot 支持多种配置方式，按优先级从高到低：
 
-### 1. 环境变量（最高优先级）
-
-```bash
-export NANOBOT_FEISHU__APP_ID=cli_xxx
-export NANOBOT_FEISHU__APP_SECRET=xxx
-export NANOBOT_AGENT__MODEL=claude-opus-4-6
-```
-
-### 2. 命令行指定
+### 1. JSON 配置文件（最高优先级）
 
 ```bash
-nanobot run --config /path/to/config.json
-nanobot serve --config /path/to/config.json
+ccbot run --config /path/to/config.json
+ccbot serve --config /path/to/config.json
 ```
 
-### 3. 默认位置
+### 2. 环境变量
+
+```bash
+export CCBOT_FEISHU__APP_ID=cli_xxx
+export CCBOT_FEISHU__APP_SECRET=xxx
+export CCBOT_AGENT__MODEL=claude-opus-4-6
+```
+
+### 3. 默认值
+
+配置加载优先级：`JSON 文件 > CCBOT_* 环境变量 > 默认值`
+
+默认配置文件位置：
 
 ```
-~/.nanobot/config.json
+~/.ccbot/config.json
 ```
 
-如果不指定 `--config`，nanobot 会自动读取这个文件。
+如果不指定 `--config`，ccbot 会自动读取这个文件。
 
 ---
 
@@ -36,13 +40,14 @@ nanobot serve --config /path/to/config.json
 适合单机部署，所有配置放在一个文件：
 
 ```
-~/.nanobot/
+~/.ccbot/
   config.json          # 主配置
   workspace/           # Workspace 目录
+    .claude/
+      CLAUDE.md
+      settings.json
+      skills/
     memory/
-    skills/
-    SOUL.md
-    ...
 ```
 
 **config.json**：
@@ -63,7 +68,7 @@ nanobot serve --config /path/to/config.json
 适合 Supervisor + Workers 分布式部署：
 
 ```
-~/.nanobot/
+~/.ccbot/
   supervisor.json      # Supervisor 配置
   worker1.json         # Worker 1 配置
   worker2.json         # Worker 2 配置
@@ -76,13 +81,13 @@ nanobot serve --config /path/to/config.json
 **启动命令**：
 ```bash
 # Supervisor（机器 A）
-nanobot run --config ~/.nanobot/supervisor.json
+ccbot run --config ~/.ccbot/supervisor.json
 
 # Worker 1（机器 B）
-nanobot serve --config ~/.nanobot/worker1.json
+ccbot serve --config ~/.ccbot/worker1.json
 
 # Worker 2（机器 C）
-nanobot serve --config ~/.nanobot/worker2.json
+ccbot serve --config ~/.ccbot/worker2.json
 ```
 
 ### 方案 C：环境变量（容器部署）
@@ -93,18 +98,18 @@ nanobot serve --config ~/.nanobot/worker2.json
 # docker-compose.yml
 services:
   supervisor:
-    image: nanobot:latest
+    image: ccbot:latest
     environment:
-      NANOBOT_FEISHU__APP_ID: cli_xxx
-      NANOBOT_FEISHU__APP_SECRET: xxx
-      NANOBOT_AGENT__MODEL: claude-opus-4-6
+      CCBOT_FEISHU__APP_ID: cli_xxx
+      CCBOT_FEISHU__APP_SECRET: xxx
+      CCBOT_AGENT__MODEL: claude-opus-4-6
 
   worker1:
-    image: nanobot:latest
+    image: ccbot:latest
     environment:
-      NANOBOT_A2A__ENABLED: true
-      NANOBOT_A2A__PORT: 8765
-      NANOBOT_AGENT__MODEL: claude-sonnet-4-6
+      CCBOT_A2A__ENABLED: true
+      CCBOT_A2A__PORT: 8765
+      CCBOT_AGENT__MODEL: claude-sonnet-4-6
 ```
 
 ---
@@ -145,10 +150,13 @@ services:
   },
   "agent": {
     "model": "claude-sonnet-4-6",
-    "workspace": "~/.nanobot/workspace",
+    "workspace": "~/.ccbot/workspace",
     "max_turns": 10,
+    "idle_timeout": 28800,
+    "max_workers": 4,
     "allowed_tools": [],
     "mcp_servers": {},
+    "env": {},
     "heartbeat_enabled": true,
     "heartbeat_interval": 1800,
     "heartbeat_notify_chat_id": ""
@@ -157,7 +165,7 @@ services:
     "enabled": false,
     "host": "0.0.0.0",
     "port": 8765,
-    "name": "nanobot",
+    "name": "ccbot",
     "description": "Claude Agent SDK powered assistant"
   }
 }
@@ -175,7 +183,7 @@ services:
   },
   "agent": {
     "model": "claude-opus-4-6",
-    "workspace": "~/.nanobot/supervisor",
+    "workspace": "~/.ccbot/supervisor",
     "max_turns": 10
   }
 }
@@ -188,7 +196,7 @@ services:
 {
   "agent": {
     "model": "claude-sonnet-4-6",
-    "workspace": "~/.nanobot/worker",
+    "workspace": "~/.ccbot/worker",
     "max_turns": 30
   },
   "a2a": {
@@ -225,10 +233,13 @@ services:
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `model` | string | "" | 模型名（空=SDK 默认） |
-| `workspace` | string | ~/.nanobot/workspace | Workspace 路径 |
+| `workspace` | string | ~/.ccbot/workspace | Workspace 路径 |
 | `max_turns` | int | 10 | 最大轮数 |
+| `idle_timeout` | int | 28800 | 空闲超时秒数（默认 8 小时） |
+| `max_workers` | int | 4 | 最大并行 worker 数（1-16） |
 | `allowed_tools` | list | [] | 允许的工具（空=全部） |
 | `mcp_servers` | dict | {} | MCP 服务器配置 |
+| `env` | dict | {} | 注入 claude 子进程的额外环境变量 |
 | `heartbeat_enabled` | bool | true | 是否启用心跳 |
 | `heartbeat_interval` | int | 1800 | 心跳间隔（秒） |
 | `heartbeat_notify_chat_id` | string | "" | 心跳通知目标 |
@@ -242,7 +253,7 @@ services:
 | `enabled` | bool | false | 是否启用 A2A 服务器 |
 | `host` | string | "0.0.0.0" | 监听地址 |
 | `port` | int | 8765 | 监听端口 |
-| `name` | string | "nanobot" | Agent 名称 |
+| `name` | string | "ccbot" | Agent 名称 |
 | `description` | string | "..." | Agent 描述 |
 
 ---
@@ -251,23 +262,22 @@ services:
 
 ### Q: 配置文件放在哪里？
 
-**A**: 推荐放在 `~/.nanobot/config.json`，这样不需要每次指定 `--config`。
+**A**: 推荐放在 `~/.ccbot/config.json`，这样不需要每次指定 `--config`。
 
 ### Q: 如何管理多个配置？
 
 **A**:
-- 单机：使用默认位置 `~/.nanobot/config.json`
+- 单机：使用默认位置 `~/.ccbot/config.json`
 - 多机：每台机器用不同的配置文件，通过 `--config` 指定
 - 容器：使用环境变量
 
 ### Q: 环境变量如何覆盖配置文件？
 
-**A**: 环境变量优先级最高。例如：
+**A**: JSON 文件优先级高于环境变量。例如：
 ```bash
 # config.json 中 model = "claude-sonnet-4-6"
-# 环境变量覆盖
-export NANOBOT_AGENT__MODEL=claude-opus-4-6
-# 实际使用 claude-opus-4-6
+# 环境变量设置（仅在 JSON 未指定该字段时生效）
+export CCBOT_AGENT__MODEL=claude-opus-4-6
 ```
 
 ### Q: 如何验证配置是否正确？
@@ -275,10 +285,10 @@ export NANOBOT_AGENT__MODEL=claude-opus-4-6
 **A**:
 ```bash
 # 查看版本（会加载配置）
-nanobot version
+ccbot version
 
 # 查看日志
-nanobot run --verbose
+ccbot run --verbose
 ```
 
 ---
@@ -287,5 +297,5 @@ nanobot run --verbose
 
 1. **敏感信息**：使用环境变量存储 `app_id` 和 `app_secret`
 2. **版本控制**：配置文件可以提交到 Git，但要排除敏感信息
-3. **备份**：定期备份 `~/.nanobot/` 目录
+3. **备份**：定期备份 `~/.ccbot/` 目录
 4. **多环境**：开发/生产使用不同的配置文件
