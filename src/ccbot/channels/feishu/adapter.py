@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -162,27 +163,30 @@ class FeishuChannel(Channel):
 
         logger.info("处理消息: sender={} chat={} content={}", sender_id, chat_id, content[:60])
 
-        # 添加 WINK 表情表示已收到消息
-        await self._add_reaction(message_id, "WINK")
+        # 添加表情表示正在处理（emoji 类型来自配置）
+        reaction_id = await self._add_reaction(message_id, self.config.react_emoji)
 
-        # 进度回调：批量聚合工具调用，每2-3条发送一次
+        # 进度回调：根据 progress_mode 控制反馈粒度
+        # milestone=每3条批量发送, verbose=每条都发
         progress_buffer: list[str] = []
         last_send_time = [time.time()]
-        total_tools = [0]  # 统计总工具调用数
+        total_tools = [0]
+        batch_size = 1 if self.config.progress_mode == "verbose" else 3
 
         async def progress_cb(msg: str) -> None:
             logger.info("[{}] 进度: {}", chat_id, msg)
 
             # 只收集工具调用消息（以 🔧 开头）
             if msg.startswith("🔧"):
-                # 提取工具名，简化显示
-                tool_name = msg.replace("🔧 ", "").strip()
+                # "🔧 Read: /path/to/file.py" → "3. Read: /path/to/file.py"
+                tool_info = msg.replace("🔧 ", "").strip()
+                if len(tool_info) > 60:
+                    tool_info = tool_info[:57] + "..."
                 total_tools[0] += 1
-                progress_buffer.append(f"{total_tools[0]}. {tool_name}")
+                progress_buffer.append(f"{total_tools[0]}. {tool_info}")
 
-                # 每3条发送一次，或者超过8秒有积压时也发送
                 now = time.time()
-                should_send = len(progress_buffer) >= 3 or (
+                should_send = len(progress_buffer) >= batch_size or (
                     progress_buffer and now - last_send_time[0] > 8
                 )
 
@@ -191,7 +195,11 @@ class FeishuChannel(Channel):
                     progress_buffer.clear()
                     last_send_time[0] = now
                     with contextlib.suppress(Exception):
-                        await self.send(reply_to, f"⏳ 执行中 ({total_tools[0]} 工具):\n{batch}")
+                        await self.send(
+                            reply_to,
+                            f"**{total_tools[0]} 工具调用**\n{batch}",
+                            msg_type="progress",
+                        )
 
         try:
             # 调用业务处理器
@@ -201,18 +209,41 @@ class FeishuChannel(Channel):
             if progress_buffer:
                 batch = "\n".join(progress_buffer)
                 with contextlib.suppress(Exception):
-                    await self.send(reply_to, f"⏳ 执行中 ({total_tools[0]} 工具):\n{batch}")
+                    await self.send(
+                        reply_to,
+                        f"**{total_tools[0]} 工具调用**\n{batch}",
+                        msg_type="progress",
+                    )
 
             await self.send(reply_to, reply)
             return reply
         except Exception as e:
             logger.exception("处理消息失败: {}", e)
             error_msg = f"处理失败: {e}"
-            await self.send(reply_to, error_msg)
+            await self.send(reply_to, error_msg, msg_type="error")
             return error_msg
+        finally:
+            # 回复完成后移除处理中表情
+            if reaction_id:
+                await self._remove_reaction(message_id, reaction_id)
 
     def _check_permissions(self, sender_id: str, chat_type: str) -> bool:
-        """检查权限。"""
+        """检查权限。
+
+        策略优先级：chat_type 策略 → allow_from 白名单
+        - dm_policy:  "open"=通过白名单检查即可, "pairing"=必须在白名单中（忽略通配符）
+        - group_policy: "open"=允许所有群
+        """
+        # 群聊策略
+        if chat_type == "group" and self.config.group_policy != "open":
+            logger.debug("群聊策略拒绝: group_policy={}", self.config.group_policy)
+            return False
+
+        # 私聊 pairing 模式：必须在白名单中（不接受通配符）
+        if chat_type == "p2p" and self.config.dm_policy == "pairing":
+            return sender_id in self.config.allow_from
+
+        # 通用白名单检查
         allow_list = self.config.allow_from
         if not allow_list:
             logger.warning("allow_from 为空，拒绝所有访问")
@@ -355,18 +386,57 @@ class FeishuChannel(Channel):
 
         logger.info("飞书通道已停止")
 
-    async def send(self, target: str, content: str, **kwargs: Any) -> None:
-        """发送消息。"""
+    async def send(
+        self, target: str, content: str, *, msg_type: str = "reply", **kwargs: Any
+    ) -> None:
+        """发送消息。
+
+        渲染策略（参考 OpenClaw）：
+        - progress/error: 卡片(Schema 2.0) + 彩色 header
+        - 含代码块或表格: 卡片(Schema 2.0)，渲染效果更好
+        - 普通文本: post 消息 + md 标签，飞书原生 Markdown 渲染
+
+        Args:
+            target: 目标 ID（chat_id 或 open_id）
+            content: 消息内容（Markdown 格式）
+            msg_type: 消息类型 - "reply"(默认), "progress"(青色header), "error"(红色header)
+        """
         if not self._client:
             return
 
         from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
         receive_id_type = "chat_id" if target.startswith("oc_") else "open_id"
-        card = {
-            "config": {"wide_screen_mode": True},
-            "elements": [{"tag": "markdown", "content": content}],
+
+        # 根据消息类型和内容选择渲染方式
+        header_map = {
+            "progress": ("⏳ 执行中", "turquoise"),
+            "error": ("❌ 出错", "red"),
         }
+        use_card = msg_type in header_map or _should_use_card(content)
+
+        if use_card:
+            # 卡片 Schema 2.0：代码块/表格渲染更好，进度/错误可带彩色 header
+            card: dict[str, Any] = {
+                "schema": "2.0",
+                "config": {"wide_screen_mode": True},
+                "body": {
+                    "elements": [{"tag": "markdown", "content": content}],
+                },
+            }
+            if msg_type in header_map:
+                title, color = header_map[msg_type]
+                card["header"] = {
+                    "title": {"tag": "plain_text", "content": title},
+                    "template": color,
+                }
+            feishu_msg_type = "interactive"
+            feishu_content = json.dumps(card, ensure_ascii=False)
+        else:
+            # 普通文本：post + md 标签，飞书原生 Markdown 渲染
+            post = {"zh_cn": {"content": [[{"tag": "md", "text": content}]]}}
+            feishu_msg_type = "post"
+            feishu_content = json.dumps(post, ensure_ascii=False)
 
         try:
             request = (
@@ -375,8 +445,8 @@ class FeishuChannel(Channel):
                 .request_body(
                     CreateMessageRequestBody.builder()
                     .receive_id(target)
-                    .msg_type("interactive")
-                    .content(json.dumps(card, ensure_ascii=False))
+                    .msg_type(feishu_msg_type)
+                    .content(feishu_content)
                     .build()
                 )
                 .build()
@@ -405,6 +475,18 @@ class FeishuChannel(Channel):
                 return
 
             message_id = message.message_id
+
+            # 群消息 require_mention 检查：未 @bot 则跳过
+            if self.config.require_mention and message.chat_type == "group" and self._bot_open_id:
+                mentions = getattr(message, "mentions", None) or []
+                bot_mentioned = any(
+                    getattr(m.id, "open_id", None) == self._bot_open_id
+                    for m in mentions
+                    if m and getattr(m, "id", None)
+                )
+                if not bot_mentioned:
+                    logger.debug("群消息未 @bot，跳过: {}", message_id)
+                    return
 
             # 1. Dedup 检查
             if self._dedup.check(message_id):
@@ -436,10 +518,10 @@ class FeishuChannel(Channel):
         except Exception as e:
             logger.exception("Pipeline 处理失败: {}", e)
 
-    async def _add_reaction(self, message_id: str, emoji_type: str) -> None:
-        """添加表情反应。"""
+    async def _add_reaction(self, message_id: str, emoji_type: str) -> str | None:
+        """添加表情反应，返回 reaction_id（用于后续删除）。"""
         if not self._client:
-            return
+            return None
 
         from lark_oapi.api.im.v1 import (
             CreateMessageReactionRequest,
@@ -459,9 +541,35 @@ class FeishuChannel(Channel):
                 .build()
             )
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._client.im.v1.message_reaction.create, request)
+            response = await loop.run_in_executor(
+                None, self._client.im.v1.message_reaction.create, request
+            )
+            if response.success() and response.data and response.data.reaction_id:
+                return response.data.reaction_id
+            logger.warning("添加表情失败: code={} msg={}", response.code, response.msg)
         except Exception as e:
-            logger.debug("添加表情失败: {}", e)
+            logger.warning("添加表情出错: {}", e)
+        return None
+
+    async def _remove_reaction(self, message_id: str, reaction_id: str) -> None:
+        """删除表情反应。"""
+        if not self._client:
+            return
+
+        from lark_oapi.api.im.v1 import DeleteMessageReactionRequest
+
+        try:
+            request = (
+                DeleteMessageReactionRequest.builder()
+                .message_id(message_id)
+                .reaction_id(reaction_id)
+                .build()
+            )
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._client.im.v1.message_reaction.delete, request)
+            logger.debug("已移除表情: message_id={} reaction_id={}", message_id, reaction_id)
+        except Exception as e:
+            logger.debug("移除表情失败: {}", e)
 
     async def _fetch_bot_open_id(self) -> None:
         """获取 bot open_id。"""
@@ -484,28 +592,14 @@ class FeishuChannel(Channel):
         except Exception as e:
             logger.warning("获取 bot open_id 失败: {}", e)
 
-    async def _send_typing_indicator(self, chat_id: str) -> None:
-        """发送"正在输入"状态（Typing Indicator）。
 
-        飞书 API: POST /open-apis/im/v1/chats/{chat_id}/typing
-        """
-        try:
-            import requests  # type: ignore[import-untyped]
-            from lark_oapi.core.token.manager import TokenManager
+# ── 模块级辅助函数 ──
 
-            def _send() -> None:
-                token = TokenManager.get_self_tenant_token(self._client._config)
-                resp = requests.post(
-                    f"https://open.feishu.cn/open-apis/im/v1/chats/{chat_id}/typing",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json={"type": "text"},
-                    timeout=5,
-                )
-                if resp.status_code != 200:
-                    logger.debug("发送 typing 状态失败: {}", resp.text)
+# 匹配 Markdown 代码块或表格（参考 OpenClaw shouldUseCard）
+_RE_CODE_BLOCK = re.compile(r"```[\s\S]*?```")
+_RE_TABLE = re.compile(r"\|.+\|[\r\n]+\|[-:| ]+\|")
 
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _send)
-        except Exception as e:
-            # Typing 状态是可选功能，失败不影响主流程
-            logger.debug("发送 typing 状态出错: {}", e)
+
+def _should_use_card(text: str) -> bool:
+    """检测内容是否包含代码块或表格，需要卡片渲染。"""
+    return bool(_RE_CODE_BLOCK.search(text) or _RE_TABLE.search(text))

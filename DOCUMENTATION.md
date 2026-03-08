@@ -389,26 +389,32 @@ class Channel(ABC):
 
 **特性：**
 
-- WebSocket 实时消息接收
-- 自动重连机制
-- 权限检查（allow_from 白名单）
-- 消息反应（WINK 表情表示已收到）
-- 进度反馈（批量聚合工具调用）
+- WebSocket 实时消息接收 + 自动重连
+- 权限检查（allow_from + dm_policy/group_policy）
+- 群聊 @bot 过滤（require_mention）
+- 消息反应（react_emoji 可配置，默认 THINKING）
+- 进度反馈（progress_mode 控制粒度）
+- 消息渲染自动切换（参考 OpenClaw）
 
-**进度反馈机制：**
+**FeishuConfig 配置项：**
 
-```python
-# 批量聚合工具调用，每3条发送一次
-progress_buffer: list[str] = []
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `allow_from` | `["*"]` | 允许的用户 open_id 列表，`*` 表示所有 |
+| `dm_policy` | `"open"` | 私聊策略：`open`=白名单检查, `pairing`=严格匹配白名单（忽略通配符） |
+| `group_policy` | `"open"` | 群聊策略：`open`=允许所有群 |
+| `require_mention` | `false` | 群聊是否需要 @bot 才响应 |
+| `react_emoji` | `"THINKING"` | 收到消息时的表情反应（飞书 emoji_type） |
+| `progress_mode` | `"milestone"` | 进度反馈：`milestone`=每3条批量, `verbose`=每条都发 |
 
-async def progress_cb(msg: str) -> None:
-    if msg.startswith("🔧"):  # 只收集工具调用消息
-        progress_buffer.append(f"{total_tools}. {tool_name}")
+**消息渲染策略（参考 OpenClaw）：**
 
-        # 每3条发送一次，或者超过8秒有积压时也发送
-        if len(progress_buffer) >= 3 or now - last_send_time > 8:
-            await send(reply_to, f"⏳ 执行中 ({total_tools} 工具):\n{batch}")
-```
+| 场景 | 渲染方式 | 说明 |
+|------|---------|------|
+| 普通文本 | `post` + `md` 标签 | 飞书原生 Markdown 渲染 |
+| 含代码块/表格 | 卡片 Schema 2.0 | `markdown` 元素，渲染效果更好 |
+| 进度消息 | 卡片 + 青色 header | `⏳ 执行中` 彩色标题 |
+| 错误消息 | 卡片 + 红色 header | `❌ 出错` 红色标题 |
 
 ---
 
@@ -762,6 +768,36 @@ ccbot run [--config ~/.ccbot/config.json]
 # 启动 A2A 服务器
 ccbot serve [--config ~/.ccbot/config.json]
 ```
+
+---
+
+## 未来规划
+
+### Agent 间通信
+
+当前 Worker 之间完全隔离，仅通过 Supervisor 间接协作。以下是分阶段通信增强方案：
+
+**Phase 1: 内存 MessageBus（近期）**
+
+- 基于 `asyncio.Queue` 的进程内消息总线
+- Worker 间可互查状态（如「frontend worker 是否完成？」）
+- 支持 publish/subscribe 模式，Worker 可订阅特定 topic
+- 适用场景：单机部署、Worker 间需要共享中间结果
+
+```
+Worker A ──publish──→ MessageBus ──notify──→ Worker B
+                         ↑
+Worker C ──subscribe─────┘
+```
+
+**Phase 2: A2A 协议扩展（远期）**
+
+- 基于现有 A2A Server 扩展，支持 Agent 间跨机器通信
+- 每个 Agent 实例暴露 A2A 端点，通过 Agent Card 发现彼此
+- 支持分布式部署场景（如不同机器上的 Agent 协作）
+- 复用 JSON-RPC 2.0 + SSE 流式协议
+
+**当前结论**: Worker 隔离模式在大多数场景已足够，Supervisor 综合机制能有效协调。仅在需要实时数据共享（如 A/B 测试结果互查）时才需要引入 Phase 1。
 
 ---
 

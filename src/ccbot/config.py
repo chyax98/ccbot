@@ -69,13 +69,8 @@ class FeishuConfig(BaseModel):
     require_mention: bool = False  # 群聊是否需要 @bot 才响应
 
     # 交互配置
-    react_emoji: str = "THUMBSUP"
-    progress_mode: str = (
-        "milestone"  # 进度反馈: "edit"=编辑 / "milestone"=关键节点 / "verbose"=详细
-    )
-
-    # Pipeline 配置
-    use_v2_pipeline: bool = True  # 使用新 Pipeline（Dedup + Debounce + Queue）
+    react_emoji: str = "THINKING"  # 收到消息时的表情反应，飞书合法 emoji_type
+    progress_mode: str = "milestone"  # "milestone"=每3条批量发送 / "verbose"=每条都发
 
 
 class Config(BaseSettings):

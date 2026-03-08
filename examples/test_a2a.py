@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A2A 协议测试脚本：测试 nanobot A2A 服务器的各个端点。"""
+"""A2A 协议测试脚本：测试 ccbot A2A 服务器的各个端点。"""
 
 import asyncio
 import json
@@ -64,7 +64,7 @@ async def test_message_stream(base_url: str, message: str) -> None:
 async def main() -> None:
     base_url = "http://localhost:8765"
 
-    print("🐈 nanobot A2A 协议测试")
+    print("🐈 ccbot A2A 协议测试")
     print(f"服务器地址: {base_url}")
 
     # 1. 测试 Agent Card

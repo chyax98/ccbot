@@ -126,7 +126,10 @@ class CCBotAgent:
                         logger.info("[{}] 🔧 {} | {}", chat_id, tool, desc[:120])
                         tool_count += 1
                         if on_progress:
-                            await on_progress(f"🔧 {tool}")
+                            detail = f"🔧 {tool}"
+                            if desc:
+                                detail = f"🔧 {tool}: {desc[:80]}"
+                            await on_progress(detail)
 
                     elif isinstance(msg, ResultMessage):
                         cost = f"${msg.total_cost_usd:.4f}" if msg.total_cost_usd else "n/a"

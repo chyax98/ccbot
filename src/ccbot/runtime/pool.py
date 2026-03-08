@@ -246,7 +246,8 @@ class AgentPool:
 
         for chat_id, client in clients:
             try:
-                await client.disconnect()
+                await asyncio.wait_for(client.disconnect(), timeout=3.0)
                 logger.debug("关闭 client: chat_id={}", chat_id)
-            except Exception as e:
-                logger.warning("关闭 client 出错: chat_id={} error={}", chat_id, e)
+            except Exception:
+                # Shutdown 期间 cancel scope 跨 task 是预期的，子进程会随主进程退出
+                logger.debug("关闭 client 跳过: chat_id={}", chat_id)

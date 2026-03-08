@@ -3,7 +3,7 @@
 
   "agent": {
     "model": "claude-sonnet-4-6",
-    "workspace": "~/.nanobot/worker",
+    "workspace": "~/.ccbot/worker",
     "max_turns": 30
   },
 
