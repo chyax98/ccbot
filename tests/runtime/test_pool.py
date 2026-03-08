@@ -165,6 +165,7 @@ class TestAgentPool:
         assert "System prompt" in options_seen["system_prompt"]["append"]
         assert "Supervisor rules" in options_seen["system_prompt"]["append"]
         assert options_seen["setting_sources"] == ["project"]
+        assert options_seen["disallowed_tools"] == ["Agent", "SendMessage"]
         assert options_seen["cwd"] == str(mock_workspace.path)
         dummy_client.connect.assert_awaited_once()
 
@@ -191,6 +192,7 @@ class TestAgentPool:
             await pool._create_client("chat_123")
 
         assert options_seen["setting_sources"] == ["project"]
+        assert options_seen["disallowed_tools"] == ["Agent", "SendMessage"]
         assert options_seen["settings"] == "{\"env\": {\"FOO\": \"BAR\"}}"
 
     @pytest.mark.asyncio

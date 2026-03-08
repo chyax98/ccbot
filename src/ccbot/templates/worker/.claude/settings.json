@@ -1,5 +1,7 @@
 {
   "disallowedTools": [
-    "statusline-setup"
+    "statusline-setup",
+    "Agent",
+    "SendMessage"
   ]
 }

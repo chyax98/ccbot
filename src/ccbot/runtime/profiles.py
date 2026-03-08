@@ -34,20 +34,24 @@ class RuntimeRoleProfile:
     role: RuntimeRole
     permission_mode: str
     setting_sources: tuple[str, ...] = ("project",)
+    disallowed_tools: tuple[str, ...] = ()
 
 
 _ROLE_PROFILES: dict[RuntimeRole, RuntimeRoleProfile] = {
     RuntimeRole.SUPERVISOR: RuntimeRoleProfile(
         role=RuntimeRole.SUPERVISOR,
         permission_mode="bypassPermissions",
+        disallowed_tools=("Agent", "SendMessage"),
     ),
     RuntimeRole.WORKER: RuntimeRoleProfile(
         role=RuntimeRole.WORKER,
         permission_mode="bypassPermissions",
+        disallowed_tools=("Agent", "SendMessage"),
     ),
     RuntimeRole.REVIEWER: RuntimeRoleProfile(
         role=RuntimeRole.REVIEWER,
         permission_mode="plan",
+        disallowed_tools=("Agent", "SendMessage"),
     ),
 }
 
@@ -109,6 +113,7 @@ def build_sdk_options(
         "cwd": str(cwd),
         "permission_mode": profile.permission_mode,
         "setting_sources": list(profile.setting_sources),
+        "disallowed_tools": list(profile.disallowed_tools),
     }
     if model:
         kwargs["model"] = model

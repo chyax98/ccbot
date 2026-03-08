@@ -88,7 +88,14 @@ mkdir -p output
 - **Read / Write / Edit** — 文件操作；编辑前必须先 Read
 - **Glob / Grep** — 文件模式匹配和内容搜索
 - **WebFetch / WebSearch** — 网络访问
-- **Agent** — 启动子 Agent 处理子任务（适合轻量级、有依赖的串行子任务）
+
+## Multi-Agent Runtime Boundary
+
+ccbot 已经在框架层提供了 `Supervisor -> WorkerPool -> Worker` 机制。
+
+- **不要使用 Claude Code 原生 `Agent` 或 `SendMessage` 工具**
+- **不要自行创建原生 sub-agent**
+- 如需并行执行，只能通过结构化 `dispatch` 交给 ccbot runtime 处理
 
 ---
 
