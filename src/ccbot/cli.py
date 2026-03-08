@@ -183,8 +183,10 @@ def run(
     workspace = WorkspaceManager(Path(config.agent.workspace))
     team = AgentTeam(config.agent, workspace)
 
-    async def on_message(text: str, chat_id: str, sender_id: str, send_progress) -> str:
-        return await team.ask(chat_id, text, on_progress=send_progress)
+    async def on_message(text, chat_id, sender_id, send_progress, result_sender=None):
+        return await team.ask(
+            chat_id, text, on_progress=send_progress, on_worker_result=result_sender
+        )
 
     channel = FeishuChannel(config.feishu, output_dir=workspace.output_dir)
     channel.on_message(on_message)

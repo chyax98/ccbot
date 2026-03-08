@@ -8,6 +8,15 @@ from typing import Any
 
 from loguru import logger
 
+# Worker 结果回调类型：(worker_name, result) -> None
+ResultSender = Callable[[str, str], Awaitable[None]]
+
+# 消息处理器类型：(content, reply_to, sender_id, progress_cb, result_sender) -> reply
+MessageHandler = Callable[
+    [str, str, str, Callable[[str], Awaitable[None]], ResultSender | None],
+    Awaitable[str],
+]
+
 
 class Channel(ABC):
     """消息通道抽象基类。
@@ -16,9 +25,7 @@ class Channel(ABC):
     """
 
     def __init__(self) -> None:
-        self._on_message_handler: (
-            Callable[[str, str, str, Callable[[str], Awaitable[None]]], Awaitable[str]] | None
-        ) = None
+        self._on_message_handler: MessageHandler | None = None
         self._running = False
 
     @abstractmethod
@@ -42,14 +49,11 @@ class Channel(ABC):
         """
         ...
 
-    def on_message(
-        self,
-        handler: Callable[[str, str, str, Callable[[str], Awaitable[None]]], Awaitable[str]],
-    ) -> None:
+    def on_message(self, handler: MessageHandler) -> None:
         """注册消息处理回调。
 
         Args:
-            handler: 回调函数，签名 (content, reply_to, sender_id, progress_cb) -> reply
+            handler: 回调函数，签名 (content, reply_to, sender_id, progress_cb, result_sender) -> reply
         """
         self._on_message_handler = handler
 
@@ -59,13 +63,16 @@ class Channel(ABC):
         reply_to: str,
         sender_id: str,
         progress_cb: Callable[[str], Awaitable[None]],
+        result_sender: ResultSender | None = None,
     ) -> str:
         """内部消息处理包装。"""
         if self._on_message_handler is None:
             logger.warning("收到消息但无处理器: chat_id={}", reply_to)
             return "服务暂时不可用"
         try:
-            return await self._on_message_handler(content, reply_to, sender_id, progress_cb)
+            return await self._on_message_handler(
+                content, reply_to, sender_id, progress_cb, result_sender
+            )
         except Exception as e:
             logger.exception("消息处理失败: {}", e)
             return f"处理消息时出错: {e}"

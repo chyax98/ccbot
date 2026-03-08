@@ -12,6 +12,7 @@ Phase 2 Update: 使用结构化 DispatchPayload 替代文本解析
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
@@ -28,9 +29,14 @@ from ccbot.workspace import WorkspaceManager
 
 # Supervisor 额外注入的多 Agent 调度说明
 _SUPERVISOR_PROMPT = """\
-## Multi-Agent Dispatch
+## 你的角色：项目总控
 
-当任务适合并行或专项执行时，**立即输出 dispatch 计划，不要自己动手**：
+你是整个任务的负责人，负责把控全局。你可以：
+- 自己搜索、调研、读文件、分析问题——这是理解任务的基础
+- 直接处理简单问答，无需派发
+
+**当任务适合并行或需要专项执行时**（如同时开发多个模块、前后端分离、多步骤独立子任务），
+输出 dispatch 计划交给 Worker 执行：
 
 <dispatch>
 [
@@ -47,8 +53,8 @@ _SUPERVISOR_PROMPT = """\
 规则：
 - name 在本次 dispatch 中唯一，用于日志和进度显示
 - cwd 必须是绝对路径；同一 repo 内各 worker 操作不重叠的文件/目录
-- model / max_turns 可省略（默认继承 Supervisor 配置）
-- dispatch 块之外可以写给用户看的说明，但不要在 dispatch 块内加注释
+- model / max_turns 可省略（默认继承配置）
+- dispatch 块之外可以写给用户看的说明，不要在 dispatch 块内加注释
 - 收到 worker 结果后，综合成清晰的汇报返回给用户
 
 Worker 通信：各 Worker 配备 MCP 通信工具（ccbot-comm），可互相发消息、
@@ -99,8 +105,18 @@ class AgentTeam:
         chat_id: str,
         prompt: str,
         on_progress: Callable[[str], Awaitable[None]] | None = None,
+        on_worker_result: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> str:
-        """处理消息：Supervisor 分析 → 可选 dispatch → 综合回复。"""
+        """处理消息：Supervisor 分析 → 可选 dispatch → 综合回复。
+
+        Args:
+            chat_id: 会话 ID
+            prompt: 用户消息
+            on_progress: 进度回调
+            on_worker_result: Worker 结果回调。提供时启用异步派发模式：
+                后台执行 Workers，每完成一个立即回调，ask() 立即返回派发摘要。
+                不提供时使用同步模式：等待全部完成 + Supervisor 综合。
+        """
         # Step 1: Supervisor 分析任务
         if on_progress:
             await on_progress("📋 分析任务中...")
@@ -121,16 +137,24 @@ class AgentTeam:
         if on_progress:
             await on_progress(f"📋 派发任务: {dispatch.worker_names}")
 
-        # Step 3: 并行执行所有 worker
-        result = await self._run_workers(chat_id, dispatch, on_progress)
-
-        # Step 4: 喂回 Supervisor 综合
-        synthesis = result.to_synthesis_prompt()
-        logger.info("[{}] 所有 worker 完成，请求 Supervisor 综合", chat_id)
-        if on_progress:
-            await on_progress("🎯 综合结果中...")
-
-        return await self._supervisor.ask(chat_id, synthesis, on_progress=on_progress)
+        if on_worker_result is not None:
+            # 异步模式：后台启动 Workers，立即返回派发摘要
+            pre_text = _extract_pre_dispatch_text(supervisor_reply)
+            asyncio.create_task(
+                self._run_workers_async(chat_id, dispatch, on_progress, on_worker_result)
+            )
+            return (
+                f"{pre_text}\n\n"
+                f"📋 已派发 {len(dispatch.tasks)} 个任务: {dispatch.worker_names}"
+            ).strip()
+        else:
+            # 同步模式：等待全部完成 + Supervisor 综合（CLI / A2A / 向后兼容）
+            result = await self._run_workers(chat_id, dispatch, on_progress)
+            synthesis = result.to_synthesis_prompt()
+            logger.info("[{}] 所有 worker 完成，请求 Supervisor 综合", chat_id)
+            if on_progress:
+                await on_progress("🎯 综合结果中...")
+            return await self._supervisor.ask(chat_id, synthesis, on_progress=on_progress)
 
     async def _run_workers(
         self,
@@ -234,6 +258,57 @@ class AgentTeam:
         finally:
             await bus.close_session(session_id)
             await context.close_session(session_id)
+
+
+    async def _run_workers_async(
+        self,
+        chat_id: str,
+        dispatch: DispatchPayload,
+        on_progress: Callable[[str], Awaitable[None]] | None,
+        on_worker_result: Callable[[str, str], Awaitable[None]],
+    ) -> None:
+        """异步模式：后台并行执行 Workers，每完成一个立即回调。
+
+        与 _run_workers() 复用相同的执行逻辑，但：
+        - 不返回 WorkerResult，而是逐个回调 on_worker_result(name, text)
+        - 全部完成后发送汇总
+        - 不做 Supervisor 综合（结果直接发给用户）
+        - 单个 Worker 异常不中断其他 Workers
+        """
+        try:
+            result = await self._run_workers(chat_id, dispatch, on_progress)
+
+            # 逐个回调每个 worker 的结果
+            for wr in result.workers:
+                try:
+                    await on_worker_result(wr.name, wr.result)
+                except Exception as e:
+                    logger.error("[{}] 回调 worker 结果失败 name={}: {}", chat_id, wr.name, e)
+
+            # 发送汇总
+            success_count = sum(1 for wr in result.workers if wr.success)
+            total = len(result.workers)
+            summary = f"全部 {total} 个任务完成（{success_count} 成功"
+            if success_count < total:
+                summary += f"，{total - success_count} 失败"
+            summary += "）"
+            try:
+                await on_worker_result("📊", summary)
+            except Exception as e:
+                logger.error("[{}] 回调汇总失败: {}", chat_id, e)
+
+        except Exception as e:
+            logger.exception("[{}] 异步 dispatch 执行失败: {}", chat_id, e)
+            try:
+                await on_worker_result("❌ 系统错误", f"异步派发执行失败: {e}")
+            except Exception:
+                pass
+
+
+def _extract_pre_dispatch_text(text: str) -> str:
+    """提取 <dispatch> 之前的文本。"""
+    match = re.search(r"<dispatch>", text, re.IGNORECASE)
+    return text[: match.start()].strip() if match else text.strip()
 
 
 async def _build_comm_summary(bus: InMemoryBus, context: InMemoryContext, session_id: str) -> str:

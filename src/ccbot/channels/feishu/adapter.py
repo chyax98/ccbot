@@ -194,13 +194,16 @@ class FeishuChannel(Channel):
         progress_buffer: list[str] = []
         last_send_time = [time.time()]
         total_tools = [0]
-        batch_size = 1 if self.config.progress_mode == "verbose" else 3
+        all_tool_names: list[str] = []  # 用于最终摘要
+        # verbose: 每次都发；milestone: 每 5 次或超过 10s 发一次
+        batch_size = 1 if self.config.progress_mode == "verbose" else 5
 
         async def progress_cb(msg: str) -> None:
             logger.info("[{}] 进度: {}", chat_id, msg)
 
             if msg.startswith("🔧"):
                 tool_info = msg.replace("🔧 ", "").strip()
+                all_tool_names.append(tool_info.split("|")[0].strip())
                 if len(tool_info) > 60:
                     tool_info = tool_info[:57] + "..."
                 total_tools[0] += 1
@@ -208,7 +211,7 @@ class FeishuChannel(Channel):
 
                 now = time.time()
                 should_send = len(progress_buffer) >= batch_size or (
-                    progress_buffer and now - last_send_time[0] > 8
+                    progress_buffer and now - last_send_time[0] > 10
                 )
 
                 if should_send:
@@ -218,24 +221,51 @@ class FeishuChannel(Channel):
                     with contextlib.suppress(Exception):
                         await self.send(
                             reply_to,
-                            f"**{total_tools[0]} 工具调用**\n{batch}",
+                            f"**⏳ {total_tools[0]} 工具调用**\n{batch}",
                             msg_type="progress",
                             reply_to_message_id=reply_msg_id,
+                            reply_in_thread=False,  # 直接在聊天里显示，让用户看到进度
                         )
 
-        try:
-            reply = await self._handle_message(content, reply_to, sender_id, progress_cb)
+        def _tool_summary() -> str:
+            """生成工具调用详情摘要，供追加到最终回复（每行 ≤80 字符）。"""
+            if not total_tools[0]:
+                return ""
+            lines = [f"\n\n---\n🔧 共执行 **{total_tools[0]}** 次工具调用\n"]
+            for i, detail in enumerate(all_tool_names, 1):
+                short = detail[:80] + ("…" if len(detail) > 80 else "")
+                lines.append(f"{i}. {short}")
+            return "\n".join(lines)
 
-            # 发送剩余进度
+        async def result_sender(worker_name: str, result: str) -> None:
+            """异步派发：Worker 结果发送到飞书 Thread。"""
+            prefix = "✅" if not result.startswith("❌") else ""
+            await self.send(
+                reply_to,
+                f"**{prefix} [{worker_name}]**\n\n{result}",
+                reply_to_message_id=reply_msg_id,
+                reply_in_thread=True,
+            )
+
+        async def _send_remaining_progress() -> None:
             if progress_buffer:
                 batch = "\n".join(progress_buffer)
+                progress_buffer.clear()
                 with contextlib.suppress(Exception):
                     await self.send(
                         reply_to,
-                        f"**{total_tools[0]} 工具调用**\n{batch}",
+                        f"**⏳ {total_tools[0]} 工具调用**\n{batch}",
                         msg_type="progress",
                         reply_to_message_id=reply_msg_id,
+                        reply_in_thread=False,
                     )
+
+        try:
+            reply = await self._handle_message(
+                content, reply_to, sender_id, progress_cb, result_sender
+            )
+
+            await _send_remaining_progress()
 
             # 检查 <<<CONFIRM>>> 交互标记
             confirm_match = _CONFIRM_RE.search(reply)
@@ -264,23 +294,18 @@ class FeishuChannel(Channel):
                 # 将用户选择发回 Claude，获取后续回复
                 progress_buffer.clear()
                 total_tools[0] = 0
+                all_tool_names.clear()
                 follow_reply = await self._handle_message(
                     f"[用户选择: {choice}]", reply_to, sender_id, progress_cb
                 )
-                if progress_buffer:
-                    batch = "\n".join(progress_buffer)
-                    with contextlib.suppress(Exception):
-                        await self.send(
-                            reply_to,
-                            f"**{total_tools[0]} 工具调用**\n{batch}",
-                            msg_type="progress",
-                            reply_to_message_id=reply_msg_id,
-                        )
-                await self.send(reply_to, follow_reply, reply_to_message_id=reply_msg_id)
+                await _send_remaining_progress()
+                final = follow_reply + _tool_summary()
+                await self.send(reply_to, final, reply_to_message_id=reply_msg_id)
                 await self._upload_and_send_outputs(reply_to, reply_msg_id, since=query_start)
                 return follow_reply
             else:
-                await self.send(reply_to, reply, reply_to_message_id=reply_msg_id)
+                final = reply + _tool_summary()
+                await self.send(reply_to, final, reply_to_message_id=reply_msg_id)
                 await self._upload_and_send_outputs(reply_to, reply_msg_id, since=query_start)
                 return reply
 
@@ -515,6 +540,7 @@ class FeishuChannel(Channel):
         *,
         msg_type: str = "reply",
         reply_to_message_id: str | None = None,
+        reply_in_thread: bool = False,
         **kwargs: Any,
     ) -> None:
         """发送消息，自动分段处理长内容。
@@ -523,14 +549,17 @@ class FeishuChannel(Channel):
             target: 目标 ID（chat_id 或 open_id），reply 模式下仅作为 fallback
             content: 消息内容（Markdown 格式）
             msg_type: 消息类型 - "reply"(默认), "progress"(青色header), "error"(红色header)
-            reply_to_message_id: 原始消息 ID，设置后以 thread 形式回复
+            reply_to_message_id: 原始消息 ID，设置后回复该消息
+            reply_in_thread: True 时以话题形式回复（进度消息），False 时直接回复（默认）
         """
         if not self._client:
             return
 
         for part in _split_content(content):
             await self._send_single(
-                target, part, msg_type=msg_type, reply_to_message_id=reply_to_message_id
+                target, part, msg_type=msg_type,
+                reply_to_message_id=reply_to_message_id,
+                reply_in_thread=reply_in_thread,
             )
 
     async def _send_single(
@@ -540,6 +569,7 @@ class FeishuChannel(Channel):
         *,
         msg_type: str = "reply",
         reply_to_message_id: str | None = None,
+        reply_in_thread: bool = False,
     ) -> None:
         """发送单条消息（不分段）。
 
@@ -576,10 +606,7 @@ class FeishuChannel(Channel):
             feishu_content = json.dumps(post, ensure_ascii=False)
 
         try:
-            loop = asyncio.get_running_loop()
-
             if reply_to_message_id:
-                # 以 thread 形式回复原始消息
                 from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
 
                 request = (
@@ -589,16 +616,13 @@ class FeishuChannel(Channel):
                         ReplyMessageRequestBody.builder()
                         .content(feishu_content)
                         .msg_type(feishu_msg_type)
-                        .reply_in_thread(True)
+                        .reply_in_thread(reply_in_thread)
                         .build()
                     )
                     .build()
                 )
-                response = await loop.run_in_executor(
-                    None, self._client.im.v1.message.reply, request
-                )
+                response = await self._client.im.v1.message.areply(request)
             else:
-                # 直接发送到 chat 或私聊
                 from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
                 receive_id_type = "chat_id" if target.startswith("oc_") else "open_id"
@@ -614,9 +638,7 @@ class FeishuChannel(Channel):
                     )
                     .build()
                 )
-                response = await loop.run_in_executor(
-                    None, self._client.im.v1.message.create, request
-                )
+                response = await self._client.im.v1.message.acreate(request)
 
             if not response.success():
                 logger.error("发送失败: code={}, msg={}", response.code, response.msg)
@@ -657,14 +679,13 @@ class FeishuChannel(Channel):
             "body": {
                 "elements": [
                     {"tag": "markdown", "content": question},
-                    {"tag": "action", "actions": buttons},
+                    *buttons,  # Schema 2.0 不支持 action 容器，按钮直接放 elements
                 ],
             },
         }
         feishu_content = json.dumps(card, ensure_ascii=False)
 
         try:
-            loop = asyncio.get_running_loop()
             if reply_to_message_id:
                 from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
 
@@ -675,14 +696,12 @@ class FeishuChannel(Channel):
                         ReplyMessageRequestBody.builder()
                         .content(feishu_content)
                         .msg_type("interactive")
-                        .reply_in_thread(True)
+                        .reply_in_thread(False)
                         .build()
                     )
                     .build()
                 )
-                response = await loop.run_in_executor(
-                    None, self._client.im.v1.message.reply, request
-                )
+                response = await self._client.im.v1.message.areply(request)
             else:
                 from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
@@ -699,9 +718,7 @@ class FeishuChannel(Channel):
                     )
                     .build()
                 )
-                response = await loop.run_in_executor(
-                    None, self._client.im.v1.message.create, request
-                )
+                response = await self._client.im.v1.message.acreate(request)
             if not response.success():
                 logger.error("发送确认卡片失败: code={} msg={}", response.code, response.msg)
         except Exception as e:
@@ -733,10 +750,9 @@ class FeishuChannel(Channel):
         if not new_files:
             return
 
-        loop = asyncio.get_running_loop()
         for path in new_files:
             try:
-                result = await loop.run_in_executor(None, self._upload_file_sync, path)
+                result = await self._upload_file(path)
                 if result is None:
                     continue
                 feishu_msg_type, feishu_content = result
@@ -748,8 +764,8 @@ class FeishuChannel(Channel):
             except Exception as e:
                 logger.error("上传/发送文件失败: {} {}", path.name, e)
 
-    def _upload_file_sync(self, path: Path) -> tuple[str, str] | None:
-        """同步上传单个文件（在 executor 中运行），返回 (msg_type, content_json)。"""
+    async def _upload_file(self, path: Path) -> tuple[str, str] | None:
+        """异步上传单个文件，返回 (msg_type, content_json)。"""
         ext = path.suffix.lower()
 
         if ext in _IMAGE_EXTS:
@@ -763,7 +779,7 @@ class FeishuChannel(Channel):
                     )
                     .build()
                 )
-            response = self._client.im.v1.image.create(request)
+            response = await self._client.im.v1.image.acreate(request)
             if not response.success():
                 logger.error("上传图片失败: code={} msg={}", response.code, response.msg)
                 return None
@@ -785,7 +801,7 @@ class FeishuChannel(Channel):
                     )
                     .build()
                 )
-            response = self._client.im.v1.file.create(request)
+            response = await self._client.im.v1.file.acreate(request)
             if not response.success():
                 logger.error("上传文件失败: code={} msg={}", response.code, response.msg)
                 return None
@@ -799,8 +815,6 @@ class FeishuChannel(Channel):
         feishu_content: str,
     ) -> None:
         """发送文件/图片消息（thread 回复或直接发送）。"""
-        loop = asyncio.get_running_loop()
-
         if reply_to_message_id:
             from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
 
@@ -816,9 +830,7 @@ class FeishuChannel(Channel):
                 )
                 .build()
             )
-            response = await loop.run_in_executor(
-                None, self._client.im.v1.message.reply, request
-            )
+            response = await self._client.im.v1.message.areply(request)
         else:
             from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
@@ -835,9 +847,7 @@ class FeishuChannel(Channel):
                 )
                 .build()
             )
-            response = await loop.run_in_executor(
-                None, self._client.im.v1.message.create, request
-            )
+            response = await self._client.im.v1.message.acreate(request)
 
         if not response.success():
             logger.error("发送文件消息失败: code={} msg={}", response.code, response.msg)
@@ -951,10 +961,7 @@ class FeishuChannel(Channel):
                 )
                 .build()
             )
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None, self._client.im.v1.message_reaction.create, request
-            )
+            response = await self._client.im.v1.message_reaction.acreate(request)
             if response.success() and response.data and response.data.reaction_id:
                 return response.data.reaction_id
             logger.warning("添加表情失败: code={} msg={}", response.code, response.msg)
@@ -976,8 +983,7 @@ class FeishuChannel(Channel):
                 .reaction_id(reaction_id)
                 .build()
             )
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._client.im.v1.message_reaction.delete, request)
+            await self._client.im.v1.message_reaction.adelete(request)
             logger.debug("已移除表情: message_id={} reaction_id={}", message_id, reaction_id)
         except Exception as e:
             logger.debug("移除表情失败: {}", e)
@@ -985,21 +991,23 @@ class FeishuChannel(Channel):
     async def _fetch_bot_open_id(self) -> None:
         """获取 bot open_id。"""
         try:
-            import requests as _requests  # type: ignore[import-untyped]
+            import httpx
             from lark_oapi.core.token.manager import TokenManager
 
-            def _get() -> str:
-                token = TokenManager.get_self_tenant_token(self._client._config)
-                resp = _requests.get(
+            loop = asyncio.get_running_loop()
+            token = await loop.run_in_executor(
+                None, TokenManager.get_self_tenant_token, self._client._config
+            )
+            async with httpx.AsyncClient() as http:
+                resp = await http.get(
                     "https://open.feishu.cn/open-apis/bot/v3/info",
                     headers={"Authorization": f"Bearer {token}"},
                     timeout=10,
                 )
-                data = resp.json()
-                return data.get("bot", {}).get("open_id", "") if data.get("code") == 0 else ""
-
-            loop = asyncio.get_running_loop()
-            self._bot_open_id = await loop.run_in_executor(None, _get)
+            data = resp.json()
+            self._bot_open_id = (
+                data.get("bot", {}).get("open_id", "") if data.get("code") == 0 else ""
+            )
         except Exception as e:
             logger.warning("获取 bot open_id 失败: {}", e)
 
