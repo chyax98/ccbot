@@ -375,3 +375,21 @@ async def test_control_command_worker_stop(team: AgentTeam) -> None:
 
     assert reply == '已中断 Worker: fe'
     pool.interrupt.assert_awaited_once_with('fe')
+
+
+@pytest.mark.asyncio
+async def test_invalid_structured_output_returns_friendly_error(team: AgentTeam) -> None:
+    team._supervisor = _mock_agent("", {
+        "mode": "schedule_create",
+        "user_message": "",
+        "schedule": {
+            "name": "daily",
+            "cron_expr": "bad cron",
+            "timezone": "Asia/Shanghai",
+            "prompt": "执行任务",
+        },
+    })
+
+    reply = await team.ask("chat1", "创建一个坏掉的定时任务")
+
+    assert reply == "Supervisor 返回了无效的结构化结果，请重试。"

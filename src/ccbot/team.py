@@ -114,10 +114,18 @@ class AgentTeam:
         )
         supervisor_reply = supervisor_result.text
 
-        structured_response = SupervisorResponse.from_structured_output(
-            supervisor_result.structured_output
-        )
-        if structured_response is None:
+        structured_payload = supervisor_result.structured_output
+        structured_response = SupervisorResponse.from_structured_output(structured_payload)
+        if structured_payload is not None and structured_response is None:
+            logger.warning("Supervisor 返回了无效的结构化结果: {}", structured_payload)
+            dispatch = DispatchPayload.from_text(supervisor_reply)
+            if dispatch is not None:
+                user_message = _extract_pre_dispatch_text(supervisor_reply)
+            elif supervisor_reply:
+                return supervisor_reply
+            else:
+                return "Supervisor 返回了无效的结构化结果，请重试。"
+        elif structured_response is None:
             dispatch = DispatchPayload.from_text(supervisor_reply)
             if dispatch is None:
                 return supervisor_reply
@@ -185,13 +193,17 @@ class AgentTeam:
         created_by = str((request_context or {}).get("sender_id", ""))
         conversation_id = str((request_context or {}).get("conversation_id", chat_id))
 
-        job = self._scheduler.create_job(
-            schedule,
-            created_by=created_by,
-            channel=channel,
-            notify_target=notify_target,
-            conversation_id=conversation_id,
-        )
+        try:
+            job = self._scheduler.create_job(
+                schedule,
+                created_by=created_by,
+                channel=channel,
+                notify_target=notify_target,
+                conversation_id=conversation_id,
+            )
+        except Exception as exc:
+            logger.warning("创建定时任务失败 chat_id={}: {}", chat_id, exc)
+            return f"无法创建定时任务：{exc}"
         summary = (
             f"已创建定时任务：{job.name}\n"
             f"- job_id: {job.job_id}\n"

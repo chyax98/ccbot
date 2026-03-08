@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from croniter import croniter
 from loguru import logger
+from pydantic import ValidationError
 
 from ccbot.models.schedule import ScheduledJob, ScheduleSpec
 
@@ -194,6 +195,11 @@ class SchedulerService:
             self._save_jobs()
             if result:
                 await self._on_notify(job, f"✅ 定时任务完成：{job.name}\n\n{result}")
+        except asyncio.CancelledError:
+            job.last_status = "idle"
+            job.last_result_summary = "cancelled"
+            self._save_jobs()
+            raise
         except Exception as exc:
             job.last_status = "failed"
             job.last_result_summary = str(exc)[:500]
@@ -208,11 +214,28 @@ class SchedulerService:
         if not self._jobs_file.exists():
             self._jobs = {}
             return
-        raw = json.loads(self._jobs_file.read_text(encoding="utf-8"))
-        self._jobs = {
-            item["job_id"]: ScheduledJob.model_validate(item)
-            for item in raw.get("jobs", [])
-        }
+
+        try:
+            raw = json.loads(self._jobs_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Scheduler jobs 文件读取失败，已忽略: {}", exc)
+            self._jobs = {}
+            return
+
+        if not isinstance(raw, dict):
+            logger.warning("Scheduler jobs 文件格式无效，已忽略")
+            self._jobs = {}
+            return
+
+        jobs: dict[str, ScheduledJob] = {}
+        for item in raw.get("jobs", []):
+            try:
+                job = ScheduledJob.model_validate(item)
+            except ValidationError as exc:
+                logger.warning("跳过无效定时任务记录: {}", exc)
+                continue
+            jobs[job.job_id] = job
+        self._jobs = jobs
 
     def _save_jobs(self) -> None:
         payload = {"jobs": [job.model_dump() for job in self.list_jobs()]}

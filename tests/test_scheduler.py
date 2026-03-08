@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -111,3 +112,90 @@ async def test_scheduler_tick_runs_due_jobs(tmp_path: Path) -> None:
     await asyncio.sleep(0)
 
     assert executed == [job.job_id]
+
+
+@pytest.mark.asyncio
+async def test_scheduler_stop_resets_cancelled_running_job(tmp_path: Path) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def on_execute(job):
+        started.set()
+        await release.wait()
+        return "ok"
+
+    async def on_notify(job, content: str) -> None:
+        return None
+
+    scheduler = SchedulerService(tmp_path, on_execute, on_notify, poll_interval_s=1)
+    job = scheduler.create_job(
+        ScheduleSpec(
+            name="daily",
+            cron_expr="0 9 * * *",
+            timezone="Asia/Shanghai",
+            prompt="执行日报",
+            purpose="日报",
+        ),
+        created_by="user-1",
+        channel="feishu",
+        notify_target="chat-1",
+        conversation_id="chat-1",
+    )
+
+    scheduler._launch_job(job)
+    await started.wait()
+    await asyncio.sleep(0)
+
+    assert scheduler.get_job(job.job_id) is not None
+    assert scheduler.get_job(job.job_id).last_status == "running"
+
+    await scheduler.stop()
+
+    saved = scheduler.get_job(job.job_id)
+    assert saved is not None
+    assert saved.last_status == "idle"
+    assert saved.last_result_summary == "cancelled"
+
+
+def test_scheduler_load_jobs_tolerates_invalid_json(tmp_path: Path) -> None:
+    jobs_file = tmp_path / ".ccbot" / "schedules" / "jobs.json"
+    jobs_file.parent.mkdir(parents=True, exist_ok=True)
+    jobs_file.write_text("not json", encoding="utf-8")
+
+    scheduler = SchedulerService(tmp_path, lambda job: None, lambda job, content: None)  # type: ignore[arg-type]
+
+    assert scheduler.list_jobs() == []
+
+
+def test_scheduler_load_jobs_skips_invalid_records(tmp_path: Path) -> None:
+    jobs_file = tmp_path / ".ccbot" / "schedules" / "jobs.json"
+    jobs_file.parent.mkdir(parents=True, exist_ok=True)
+    jobs_file.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "job_id": "ok-1",
+                        "name": "daily",
+                        "cron_expr": "0 9 * * *",
+                        "timezone": "Asia/Shanghai",
+                        "prompt": "执行日报",
+                        "next_run_at": datetime.now(UTC).isoformat(),
+                        "created_at": datetime.now(UTC).isoformat(),
+                    },
+                    {
+                        "job_id": "bad-1",
+                        "name": "bad",
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    scheduler = SchedulerService(tmp_path, lambda job: None, lambda job, content: None)  # type: ignore[arg-type]
+
+    jobs = scheduler.list_jobs()
+    assert len(jobs) == 1
+    assert jobs[0].job_id == "ok-1"
