@@ -150,10 +150,14 @@ class AgentTeam:
 
         worker_status = self._worker_pool.format_status()
         schedule_status = self._scheduler.format_status() if self._scheduler is not None else ""
-        enhanced_prompt = prompt
         extra_sections = [section for section in (worker_status, schedule_status) if section]
+        # 用 <runtime_context> 前置注入，与用户消息保持明确边界
+        # 避免 Supervisor 将系统状态误解为用户指令
         if extra_sections:
-            enhanced_prompt = f"{prompt}\n\n---\n" + "\n\n---\n".join(extra_sections)
+            context_block = "<runtime_context>\n" + "\n\n".join(extra_sections) + "\n</runtime_context>"
+            enhanced_prompt = f"{context_block}\n\n{prompt}"
+        else:
+            enhanced_prompt = prompt
 
         if on_progress:
             await on_progress("📋 分析任务中...")
