@@ -29,7 +29,7 @@ RUN uv sync --no-dev
 USER ccbot
 
 # 默认工作目录和配置
-ENV NANOBOT_AGENT__WORKSPACE=/home/ccbot/.ccbot/workspace
+ENV CCBOT_AGENT__WORKSPACE=/home/ccbot/.ccbot/workspace
 ENV PYTHONUNBUFFERED=1
 
 # A2A 服务器端口

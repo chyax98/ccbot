@@ -276,7 +276,7 @@ async def test_async_dispatch_task_is_tracked_and_stopped(team: AgentTeam) -> No
     started = asyncio.Event()
     released = asyncio.Event()
 
-    async def fake_run_workers_async(chat_id, dispatch, on_progress, on_worker_result):
+    async def fake_run_workers_async(chat_id, prompt, dispatch, on_progress, on_worker_result):
         started.set()
         try:
             await asyncio.Future()
@@ -349,6 +349,93 @@ async def test_control_command_workers_returns_status(team: AgentTeam) -> None:
 
     assert '当前活跃 Workers' in reply
     supervisor.ask_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_control_command_help_returns_summary(team: AgentTeam) -> None:
+    reply = await team.ask('chat1', '/help')
+
+    assert '/new' in reply
+    assert '/schedule list' in reply
+
+
+@pytest.mark.asyncio
+async def test_control_command_new_resets_supervisor(team: AgentTeam) -> None:
+    supervisor = MagicMock(spec=CCBotAgent)
+    supervisor.reset_conversation = AsyncMock()
+    supervisor.ask_run = AsyncMock()
+    supervisor.last_chat_id = None
+    team._supervisor = supervisor
+
+    reply = await team.ask('chat1', '/new')
+
+    assert reply == '已开始新的 Supervisor 会话。'
+    supervisor.reset_conversation.assert_awaited_once_with('chat1')
+    supervisor.ask_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_control_command_stop_interrupts_supervisor(team: AgentTeam) -> None:
+    supervisor = MagicMock(spec=CCBotAgent)
+    supervisor.interrupt = AsyncMock(return_value=True)
+    supervisor.ask_run = AsyncMock()
+    supervisor.last_chat_id = None
+    team._supervisor = supervisor
+
+    reply = await team.ask('chat1', '/stop')
+
+    assert reply == '已中断当前 Supervisor 任务。'
+    supervisor.interrupt.assert_awaited_once_with('chat1')
+    supervisor.ask_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_control_command_stop_handles_idle_supervisor(team: AgentTeam) -> None:
+    supervisor = MagicMock(spec=CCBotAgent)
+    supervisor.interrupt = AsyncMock(return_value=False)
+    supervisor.ask_run = AsyncMock()
+    supervisor.last_chat_id = None
+    team._supervisor = supervisor
+
+    reply = await team.ask('chat1', '/stop')
+
+    assert reply == '当前没有可中断的 Supervisor 任务。'
+
+
+@pytest.mark.asyncio
+async def test_async_dispatch_emits_final_synthesis(team: AgentTeam) -> None:
+    structured = {
+        "mode": "dispatch",
+        "user_message": "我会并行处理。",
+        "tasks": [{"name": "frontend", "cwd": "/fe", "task": "写登录页"}],
+    }
+    supervisor = MagicMock(spec=CCBotAgent)
+    supervisor.ask_run = AsyncMock(
+        side_effect=[
+            AgentRunResult("ignored", structured),
+            AgentRunResult("综合完成", {"mode": "respond", "user_message": "综合完成"}),
+        ]
+    )
+    supervisor.last_chat_id = None
+    team._supervisor = supervisor
+    team._worker_pool = _mock_worker_pool({"frontend": "前端完成"})
+
+    worker_results: list[tuple[str, str]] = []
+
+    async def on_worker_result(name: str, result: str) -> None:
+        worker_results.append((name, result))
+
+    reply = await team.ask('chat1', '同时开发前后端登录', on_worker_result=on_worker_result)
+    assert reply == '我会并行处理。'
+
+    for _ in range(20):
+        if worker_results and worker_results[-1][0] == '🤖 综合':
+            break
+        await asyncio.sleep(0)
+
+    assert worker_results[0] == ('frontend', '前端完成')
+    assert worker_results[-1] == ('🤖 综合', '综合完成')
+    assert supervisor.ask_run.await_count == 2
 
 
 @pytest.mark.asyncio

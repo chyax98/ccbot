@@ -76,6 +76,16 @@ class CCBotAgent:
         await self._pool.close(chat_id)
         self._locks.pop(chat_id, None)
 
+    async def reset_conversation(self, chat_id: str) -> None:
+        """Reset local runtime session and persisted supervisor memory."""
+        await self._close_session(chat_id)
+        if self._memory_store is not None and self._role == RuntimeRole.SUPERVISOR:
+            self._memory_store.clear_conversation(chat_id)
+
+    async def interrupt(self, chat_id: str) -> bool:
+        """Interrupt the active runtime session for the given conversation."""
+        return await self._pool.interrupt(chat_id)
+
     async def ask(
         self,
         chat_id: str,
@@ -98,13 +108,11 @@ class CCBotAgent:
             return AgentRunResult(text=_HELP_TEXT)
 
         if cmd == "/new":
-            await self._close_session(chat_id)
-            if self._memory_store is not None and self._role == RuntimeRole.SUPERVISOR:
-                self._memory_store.clear_conversation(chat_id)
+            await self.reset_conversation(chat_id)
             return AgentRunResult(text="New session started. 🐈")
 
         if cmd == "/stop":
-            await self._pool.interrupt(chat_id)
+            await self.interrupt(chat_id)
             return AgentRunResult(text="⏹ Stopped.")
 
         logger.info("[{}] ← {}", chat_id, prompt[:120])

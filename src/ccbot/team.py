@@ -26,6 +26,22 @@ from ccbot.runtime.worker_pool import WorkerPool
 from ccbot.scheduler import SchedulerService
 from ccbot.workspace import WorkspaceManager
 
+_TEAM_HELP_TEXT = """\
+🐈 ccbot commands:
+/new — 新建 Supervisor 会话（清空本地记忆与 runtime session）
+/stop — 中断当前 Supervisor 任务
+/workers — 查看活跃 Workers
+/worker stop <name> — 中断指定 Worker
+/worker kill <name> — 销毁指定 Worker
+/memory show — 查看当前持久化记忆快照
+/memory clear — 清空当前会话的本地记忆与 runtime session
+/schedule list — 查看定时任务
+/schedule run <id> — 立即执行定时任务
+/schedule pause <id> — 暂停定时任务
+/schedule resume <id> — 恢复定时任务
+/schedule delete <id> — 删除定时任务
+/help — 显示帮助"""
+
 
 class AgentTeam:
     """Supervisor + 持久化 WorkerPool + 可选 Scheduler。"""
@@ -153,7 +169,7 @@ class AgentTeam:
         if on_worker_result is not None:
             pre_text = user_message or _extract_pre_dispatch_text(supervisor_reply)
             task = asyncio.create_task(
-                self._run_workers_async(chat_id, dispatch, on_progress, on_worker_result),
+                self._run_workers_async(chat_id, prompt, dispatch, on_progress, on_worker_result),
                 name=f"worker-dispatch:{chat_id}",
             )
             self._track_background_task(task)
@@ -272,6 +288,7 @@ class AgentTeam:
     async def _run_workers_async(
         self,
         chat_id: str,
+        prompt: str,
         dispatch: DispatchPayload,
         on_progress: Callable[[str], Awaitable[None]] | None,
         on_worker_result: Callable[[str, str], Awaitable[None]],
@@ -286,16 +303,27 @@ class AgentTeam:
                 except Exception as exc:
                     logger.error("[{}] 回调 worker 结果失败 name={}: {}", chat_id, wr.name, exc)
 
-            success_count = sum(1 for wr in result.workers if wr.success)
-            total = len(result.workers)
-            summary = f"全部 {total} 个任务完成（{success_count} 成功"
-            if success_count < total:
-                summary += f"，{total - success_count} 失败"
-            summary += "）"
-            try:
-                await on_worker_result("📊", summary)
-            except Exception as exc:
-                logger.error("[{}] 回调汇总失败: {}", chat_id, exc)
+            if on_progress:
+                await on_progress("🎯 综合结果中...")
+
+            synthesis = result.to_synthesis_prompt(prompt)
+            synthesis_result = await self._supervisor.ask_run(
+                chat_id,
+                synthesis,
+                on_progress=on_progress,
+            )
+            synthesis_response = SupervisorResponse.from_structured_output(
+                synthesis_result.structured_output
+            )
+            final_reply = synthesis_result.text
+            if synthesis_response is not None and synthesis_response.mode == "respond":
+                final_reply = synthesis_response.user_message or synthesis_result.text
+
+            if final_reply:
+                try:
+                    await on_worker_result("🤖 综合", final_reply)
+                except Exception as exc:
+                    logger.error("[{}] 回调综合结果失败: {}", chat_id, exc)
         except Exception as exc:
             logger.exception("[{}] 异步 dispatch 执行失败: {}", chat_id, exc)
             with contextlib.suppress(Exception):
@@ -304,6 +332,19 @@ class AgentTeam:
     async def _handle_control_command(self, chat_id: str, prompt: str) -> str | None:
         command = prompt.strip()
         lowered = command.lower()
+
+        if lowered == "/help":
+            return _TEAM_HELP_TEXT
+
+        if lowered == "/new":
+            await self._supervisor.reset_conversation(chat_id)
+            return "已开始新的 Supervisor 会话。"
+
+        if lowered == "/stop":
+            interrupted = await self._supervisor.interrupt(chat_id)
+            if interrupted:
+                return "已中断当前 Supervisor 任务。"
+            return "当前没有可中断的 Supervisor 任务。"
 
         if lowered == "/workers":
             status = self._worker_pool.format_status()
@@ -334,8 +375,7 @@ class AgentTeam:
             return memory_prompt or "当前没有持久化记忆。"
 
         if lowered.startswith("/memory clear"):
-            self._memory_store.clear_conversation(chat_id)
-            await self._supervisor._close_session(chat_id)
+            await self._supervisor.reset_conversation(chat_id)
             return "已清空当前会话的本地记忆与 runtime session。"
 
         if lowered == "/schedule list":

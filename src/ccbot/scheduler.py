@@ -9,9 +9,10 @@ import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 from zoneinfo import ZoneInfo
 
-from croniter import croniter
+from croniter import croniter  # type: ignore[import-untyped]
 from loguru import logger
 from pydantic import ValidationError
 
@@ -252,4 +253,4 @@ class SchedulerService:
         next_local = croniter(cron_expr, localized_base).get_next(datetime)
         if next_local.tzinfo is None:
             next_local = next_local.replace(tzinfo=tz)
-        return next_local.astimezone(UTC)
+        return cast(datetime, next_local.astimezone(UTC))

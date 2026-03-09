@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from croniter import croniter
+from croniter import croniter  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field, field_validator
 
 

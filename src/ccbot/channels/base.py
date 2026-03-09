@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -142,10 +142,10 @@ class Channel(ABC):
 
         try:
             if self._handler_accepts_result_sender:
-                return await self._on_message_handler(
-                    content, reply_to, sender_id, progress_cb, result_sender
-                )
-            return await self._on_message_handler(content, reply_to, sender_id, progress_cb)
+                message_handler = cast(MessageHandler, self._on_message_handler)
+                return await message_handler(content, reply_to, sender_id, progress_cb, result_sender)
+            legacy_handler = cast(LegacyMessageHandler, self._on_message_handler)
+            return await legacy_handler(content, reply_to, sender_id, progress_cb)
         except Exception as e:
             logger.exception("消息处理失败: {}", e)
             return f"处理消息时出错: {e}"

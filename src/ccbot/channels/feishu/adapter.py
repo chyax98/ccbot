@@ -13,7 +13,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -617,7 +617,7 @@ class FeishuChannel(Channel):
             )
             response = await self._client.im.v1.message_reaction.acreate(request)
             if response.success() and response.data and response.data.reaction_id:
-                return response.data.reaction_id
+                return cast(str, response.data.reaction_id)
             logger.warning("添加表情失败: code={} msg={}", response.code, response.msg)
         except Exception as e:
             logger.warning("添加表情出错: {}", e)

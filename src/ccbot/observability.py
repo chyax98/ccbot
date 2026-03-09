@@ -94,10 +94,8 @@ def configure_langsmith_once(config: AgentConfig) -> bool:
         return False
 
     with _LANGSMITH_LOCK:
-        if _LANGSMITH_CONFIGURED:
-            return True
         if _LANGSMITH_ATTEMPTED:
-            return False
+            return _LANGSMITH_CONFIGURED
 
         _LANGSMITH_ATTEMPTED = True
         _apply_langsmith_env(config)
