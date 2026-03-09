@@ -73,14 +73,4 @@ ccbot 已经在框架层提供了 `Supervisor -> WorkerPool -> Worker` 机制。
 - **不要自行创建原生 sub-agent**
 - 如需并行执行，只能通过结构化 `dispatch` 交给 ccbot runtime 处理
 
----
 
-## User Profile
-
-*编辑此部分来个性化 ccbot 的行为。*
-
-- **Name**:
-- **Timezone**:
-- **Language**: 中文优先
-- **Role**:
-- **Preferences**:

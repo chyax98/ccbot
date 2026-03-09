@@ -12,6 +12,7 @@ services:
     env_file: .env
     environment:
       - CCBOT_AGENT__WORKSPACE=/home/ccbot/.ccbot/workspace
+      - LANGSMITH_TRACING=1
     volumes:
       # 持久化 workspace（记忆、技能）
       - ccbot-workspace:/home/ccbot/.ccbot/workspace

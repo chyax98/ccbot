@@ -161,6 +161,12 @@ class CCBotAgent:
                         )
                         continue
 
+                    # 所有重试耗尽后清除持久化 session_id，避免 stale resume 导致下次
+                    # 请求永久失败（Anthropic 服务端 session 过期时会走到这里）
+                    if self._memory_store is not None and self._role == RuntimeRole.SUPERVISOR:
+                        self._memory_store.set_runtime_session(chat_id, "")
+                        logger.info("[{}] 已清除 stale runtime_session_id，下次将冷启动", chat_id)
+
                     return AgentRunResult(text=format_sdk_error(e, recent_stderr))
 
             return AgentRunResult(text="抱歉，处理消息时出现未知错误。")

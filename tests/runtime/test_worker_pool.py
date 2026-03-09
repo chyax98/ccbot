@@ -20,7 +20,7 @@ def base_config() -> AgentConfig:
 
 @pytest.fixture
 def pool(base_config: AgentConfig) -> WorkerPool:
-    return WorkerPool(base_config, idle_timeout=3600)
+    return WorkerPool(base_config)
 
 
 def _make_task(name: str = "fe", cwd: str = "/tmp/fe", task: str = "build UI") -> WorkerTask:
@@ -160,8 +160,8 @@ class TestWorkerPoolLifecycle:
 
     @pytest.mark.asyncio
     async def test_cleanup_idle_workers(self) -> None:
-        config = AgentConfig(model="sonnet")
-        pool = WorkerPool(config, idle_timeout=1)
+        config = AgentConfig(model="sonnet", worker_idle_timeout=1)
+        pool = WorkerPool(config)
         mock = _mock_client()
         with patch.object(pool, "_create_client", return_value=mock):
             await pool.get_or_create(_make_task())
@@ -171,8 +171,8 @@ class TestWorkerPoolLifecycle:
 
     @pytest.mark.asyncio
     async def test_running_worker_not_cleaned(self) -> None:
-        config = AgentConfig(model="sonnet")
-        pool = WorkerPool(config, idle_timeout=1)
+        config = AgentConfig(model="sonnet", worker_idle_timeout=1)
+        pool = WorkerPool(config)
         mock = _mock_client()
         with patch.object(pool, "_create_client", return_value=mock):
             await pool.get_or_create(_make_task())
@@ -184,7 +184,7 @@ class TestWorkerPoolLifecycle:
     @pytest.mark.asyncio
     async def test_evicts_oldest_idle_worker_when_pool_limit_reached(self) -> None:
         config = AgentConfig(model="sonnet", max_pooled_workers=2)
-        pool = WorkerPool(config, idle_timeout=3600)
+        pool = WorkerPool(config)
         m1, m2, m3 = _mock_client(), _mock_client(), _mock_client()
         with patch.object(pool, "_create_client", side_effect=[m1, m2, m3]):
             await pool.get_or_create(_make_task("w1", "/w1", "t1"))
@@ -201,7 +201,7 @@ class TestWorkerPoolLifecycle:
     @pytest.mark.asyncio
     async def test_raises_when_pool_limit_reached_without_idle_worker(self) -> None:
         config = AgentConfig(model="sonnet", max_pooled_workers=2)
-        pool = WorkerPool(config, idle_timeout=3600)
+        pool = WorkerPool(config)
         m1, m2, m3 = _mock_client(), _mock_client(), _mock_client()
         with patch.object(pool, "_create_client", side_effect=[m1, m2, m3]):
             await pool.get_or_create(_make_task("w1", "/w1", "t1"))
@@ -259,7 +259,7 @@ class TestWorkerPoolLifecycle:
     ) -> None:
         """Worker 注入 env 后仍只加载 project 级 setting sources。"""
         base_config.env = {"FOO": "BAR"}
-        pool = WorkerPool(base_config, idle_timeout=3600)
+        pool = WorkerPool(base_config)
         options_seen = {}
 
         class DummyOptions:

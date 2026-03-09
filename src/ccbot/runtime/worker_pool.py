@@ -53,9 +53,9 @@ class WorkerInfo:
 class WorkerPool:
     """持久化 Worker 池，直接管理 ClaudeSDKClient。"""
 
-    def __init__(self, base_config: AgentConfig, idle_timeout: int = 3600) -> None:
+    def __init__(self, base_config: AgentConfig) -> None:
         self._base_config = base_config
-        self._idle_timeout = idle_timeout
+        self._idle_timeout = base_config.worker_idle_timeout
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._info: dict[str, WorkerInfo] = {}
         self._cleanup_task: asyncio.Task[None] | None = None

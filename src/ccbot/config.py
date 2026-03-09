@@ -54,10 +54,13 @@ class AgentConfig(BaseModel):
     short_term_memory_turns: int = 12  # 本地短期记忆保存的最大轮数（user/assistant turn）
 
     # Session 配置
-    idle_timeout: int = 28800  # 空闲超时秒数，默认 8 小时（28800 = 8*3600）
-    # 说明：ClaudeSDKClient 的 session 保存在内存中，disconnect 后丢失
-    # 设置较长的 idle_timeout 可保持 session 活跃，避免 memory 丢失
-    # 0 表示永不自动关闭（不推荐，可能占用资源）
+    idle_timeout: int = 28800  # Supervisor session 空闲超时秒数，默认 8 小时
+    # 说明：每个 chat_id 对应一个 claude 子进程（~200-500 MB/个）。
+    # disconnect 后子进程释放，但 Anthropic 服务端 session 独立保留；
+    # runtime_session_id 持久化在磁盘，下次请求通过 resume 无缝续接。
+    # 0 = 永不回收（不推荐：多群组场景会无限累积子进程）。
+    worker_idle_timeout: int = 3600  # Worker session 空闲超时秒数，默认 1 小时
+    # Worker 执行短期任务后通常可以更快回收，独立于 Supervisor 的 idle_timeout。
 
     # 多 Agent 编排配置
     max_workers: int = Field(default=4, ge=1, le=16)  # 最大并行 worker 数

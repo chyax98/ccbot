@@ -335,6 +335,7 @@ class FeishuChannel(Channel):
                         reply_to,
                         sender_id,
                         progress_cb,
+                        result_sender,
                         message_id=message_id,
                         thread_id=root_id or message_id,
                         mentions_bot=True,
