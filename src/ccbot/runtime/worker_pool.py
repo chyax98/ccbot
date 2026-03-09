@@ -21,7 +21,7 @@ from ccbot.config import AgentConfig
 from ccbot.models import WorkerTask
 from ccbot.observability import configure_langsmith_once
 from ccbot.runtime.profiles import RuntimeRole, build_sdk_options
-from ccbot.runtime.sdk_utils import build_stderr_logger, query_and_collect
+from ccbot.runtime.sdk_utils import build_stderr_capture, is_retryable_sdk_error, query_and_collect
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -43,6 +43,7 @@ class WorkerInfo:
     name: str
     cwd: str
     model: str
+    max_turns: int = 30
     status: WorkerStatus = WorkerStatus.IDLE
     created_at: float = field(default_factory=time.time)
     last_used: float = field(default_factory=time.time)
@@ -58,6 +59,7 @@ class WorkerPool:
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._info: dict[str, WorkerInfo] = {}
         self._cleanup_task: asyncio.Task[None] | None = None
+        self._stderr_captures: dict[str, object] = {}
         self._running = False
         self._max_pooled_workers = base_config.max_pooled_workers
 
@@ -94,6 +96,7 @@ class WorkerPool:
             name=task.name,
             cwd=str(task.cwd),
             model=task.model or self._base_config.model or "default",
+            max_turns=task.max_turns,
         )
         logger.info(
             "创建新 Worker: name={} cwd={} model={}",
@@ -111,23 +114,49 @@ class WorkerPool:
         if name not in self._clients:
             raise KeyError(f"Worker '{name}' 不存在")
 
-        client = self._clients[name]
-        info = self._info[name]
-        info.status = WorkerStatus.RUNNING
-        info.last_used = time.time()
+        initial_info = self._info[name]
+        initial_info.status = WorkerStatus.RUNNING
+        initial_info.last_used = time.time()
         try:
-            result = await query_and_collect(
-                client,
-                task,
-                session_id=name,
-                on_progress=on_progress,
-                log_prefix=f"[worker:{name}]",
-            )
-            info.task_count += 1
-            return result
+            for attempt in range(2):
+                info = self._info[name]
+                info.status = WorkerStatus.RUNNING
+                info.last_used = time.time()
+                client = self._clients[name]
+                try:
+                    result = await query_and_collect(
+                        client,
+                        task,
+                        session_id=name,
+                        on_progress=on_progress,
+                        log_prefix=f"[worker:{name}]",
+                    )
+                    self._info[name].task_count += 1
+                    return result
+                except Exception as exc:
+                    should_retry = attempt == 0 and is_retryable_sdk_error(exc)
+                    if should_retry:
+                        logger.warning(
+                            "Worker 会话异常退出，正在重建后重试一次: name={} error={}",
+                            name,
+                            exc,
+                        )
+                        recreate_task = WorkerTask(
+                            name=info.name,
+                            task="resume worker session",
+                            cwd=info.cwd,
+                            model="" if info.model == "default" else info.model,
+                            max_turns=info.max_turns,
+                        )
+                        await self._kill(name)
+                        await self.get_or_create(recreate_task)
+                        continue
+                    raise
         finally:
-            info.status = WorkerStatus.IDLE
-            info.last_used = time.time()
+            info = self._info.get(name)
+            if info is not None:
+                info.status = WorkerStatus.IDLE
+                info.last_used = time.time()
 
     async def kill(self, name: str) -> None:
         await self._kill(name)
@@ -148,6 +177,7 @@ class WorkerPool:
     async def _kill(self, name: str) -> None:
         client = self._clients.pop(name, None)
         self._info.pop(name, None)
+        self._stderr_captures.pop(name, None)
         if client:
             try:
                 await client.disconnect()
@@ -219,10 +249,12 @@ class WorkerPool:
             max_turns=task.max_turns,
         )
 
-        kwargs["stderr"] = build_stderr_logger(f"[sdk:worker:{task.name}]")
+        stderr_capture = build_stderr_capture(f"[sdk:worker:{task.name}]")
+        kwargs["stderr"] = stderr_capture.callback
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
         await client.connect()
+        self._stderr_captures[task.name] = stderr_capture
         return client
 
     async def _cleanup_loop(self) -> None:

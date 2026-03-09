@@ -1,58 +1,62 @@
 # ccbot Docs
 
 > 更新时间：2026-03-09
-> 目标：将 `docs/` 从碎片专题收敛为按模块组织的主文档集合，同时保留旧文件入口，避免断链接。
+> 目标：将 `docs/` 收敛为标准项目文档目录，按“产品 / Runtime / 运行 / 排障”四个主模块组织，评审类内容作为补充资料归档。
 
-## 1. 当前模块文档
+## 核心文档
 
 建议按下面顺序阅读：
 
 1. `docs/PRODUCT_ARCHITECTURE.md`
-   - 产品定义
+   - 产品目标
    - 当前主线架构
-   - 阶段边界
-   - 为什么现在不做 A2A
+   - 能力边界与阶段判断
+   - 为什么当前不做 A2A / 远程 Worker
 
 2. `docs/CLAUDE_RUNTIME.md`
-   - Claude Agent SDK 能力
-   - `ClaudeSDKClient` 的真实作用
-   - runtime profile / prompt / memory
+   - Claude Agent SDK 能力边界
+   - `ClaudeSDKClient` 的实际作用
+   - prompt / preset / settings / memory 的落地方式
 
 3. `docs/CHANNELS_AND_OPERATIONS.md`
    - Channel 抽象
-   - workspace / worker cwd
-   - CLI 预演与回归
-   - 运行和值班手册
+   - workspace 与 worker cwd
+   - CLI / Feishu 运行方式
+   - 值班、回归、日常运维
 
 4. `docs/OBSERVABILITY_AND_TROUBLESHOOTING.md`
-   - LangSmith
-   - 日志与 trace
+   - LangSmith 接入与限制
+   - 关键日志与 trace 观察点
    - 常见故障与排障顺序
 
-## 2. 旧文档处理策略
+## 补充文档
 
-当前只保留少量兼容入口页：
+5. `docs/PROJECT_REVIEW.md`
+   - 当前架构审查结论
+   - 核心优势、风险与建议
+   - 适合作为阶段复盘或演进讨论输入
+
+## 兼容入口
+
+以下页面仅作为旧链接兼容入口，不再作为主事实来源维护：
 
 - `docs/ARCHITECTURE.md`
 - `docs/RUNTIME_OPERATIONS.md`
 - `docs/TROUBLESHOOTING.md`
 
-作用：
+## 当前事实边界
 
-- 避免最常见的旧链接失效
-- 给仍在使用旧入口的人一个平滑跳转层
+文档必须反映当前代码，而不是未来设想。当前稳定边界如下：
 
-其余历史专题内容已被合并进 4 个模块主文档，不再在 `docs/` 下继续平行维护。
-
-## 3. 当前稳定结论
-
-- `docs/` 的主阅读入口已切到模块文档
-- 主线架构仍是 `Channel -> AgentTeam -> Supervisor -> WorkerPool -> Worker`
+- 主线架构是 `Channel -> AgentTeam -> Supervisor -> WorkerPool -> Worker`
 - 当前不让 Claude Code 原生 `Agent` / `SendMessage` 接管多 Agent 控制面
-- 当前只为 Supervisor 提供额外记忆
+- 当前只为 Supervisor 提供额外记忆；Worker 不维护独立长期记忆
+- Scheduler 面向周期任务，不是任意一次性后台任务系统
+- LangSmith 当前追踪 `ClaudeSDKClient`，不追踪顶层 `claude_agent_sdk.query()`
 
-## 4. 文档维护约定
+## 维护约定
 
-- 模块文档是主事实来源
-- 旧专题文档只保留跳转和少量上下文，不再继续膨胀
-- 新增内容优先写入模块文档，再决定是否保留专题补充
+- 一个主题只保留一个主事实来源
+- `README.md` 只保留入口和快速上手，不承载过多细节
+- 新增专题优先判断是否应并入 4 个主模块，而不是继续新增平行文档
+- 评审报告、复盘记录等补充材料统一放入 `docs/` 内，不再散落到仓库根目录

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +23,82 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from claude_agent_sdk import ClaudeSDKClient
+
+
+
+
+@dataclass
+class StderrCapture:
+    """Capture recent Claude Code stderr lines for diagnostics."""
+
+    prefix: str
+    max_lines: int = 40
+
+    def __post_init__(self) -> None:
+        self._lines: deque[str] = deque(maxlen=self.max_lines)
+
+    def callback(self, line: str) -> None:
+        self._lines.append(line)
+        logger.warning("{} STDERR | {}", self.prefix, line)
+
+    def snapshot(self, limit: int = 8) -> str:
+        if not self._lines:
+            return ""
+        lines = list(self._lines)[-limit:]
+        return "\n".join(lines)
+
+
+def build_stderr_capture(prefix: str) -> StderrCapture:
+    """Build stderr capture for a Claude SDK client."""
+    return StderrCapture(prefix=prefix)
+
+
+def format_sdk_error(error: Exception, recent_stderr: str = "") -> str:
+    """Format SDK/runtime errors into a user-facing diagnostic string."""
+    try:
+        import claude_agent_sdk._errors as sdk_errors
+    except Exception:
+        sdk_errors = None
+
+    process_error_cls = getattr(sdk_errors, "ProcessError", None) if sdk_errors else None
+    if process_error_cls is not None and isinstance(error, process_error_cls):
+        exit_code = getattr(error, "exit_code", None)
+        if recent_stderr:
+            return (
+                "抱歉，处理消息时出现错误：Claude Code 子进程异常退出"
+                f"（exit code: {exit_code}）。\n最近 stderr：\n{recent_stderr}"
+            )
+        return (
+            "抱歉，处理消息时出现错误：Claude Code 子进程异常退出"
+            f"（exit code: {exit_code}）。请查看服务日志中的 `[sdk:...] STDERR` 输出。"
+        )
+
+    if recent_stderr:
+        return f"抱歉，处理消息时出现错误: {error}\n最近 stderr：\n{recent_stderr}"
+    return f"抱歉，处理消息时出现错误: {error}"
+
+
+def is_retryable_sdk_error(error: Exception) -> bool:
+    """Whether the SDK error is likely recoverable by recreating the client once."""
+    try:
+        import claude_agent_sdk._errors as sdk_errors
+    except Exception:
+        sdk_errors = None
+
+    if sdk_errors is None:
+        return False
+
+    process_error_cls = getattr(sdk_errors, "ProcessError", None)
+    cli_connection_error_cls = getattr(sdk_errors, "CLIConnectionError", None)
+
+    retryable_types = tuple(
+        err_cls for err_cls in (process_error_cls, cli_connection_error_cls) if err_cls is not None
+    )
+    if retryable_types and isinstance(error, retryable_types):
+        return True
+
+    message = str(error).lower()
+    return "terminated process" in message or "processtransport is not ready" in message
 
 
 @dataclass
@@ -109,15 +186,6 @@ async def query_and_collect(
         log_prefix=log_prefix,
     )
     return result.text
-
-
-def build_stderr_logger(prefix: str):
-    """Build a Claude SDK stderr callback that forwards CLI stderr into loguru."""
-
-    def _callback(line: str) -> None:
-        logger.warning("{} STDERR | {}", prefix, line)
-
-    return _callback
 
 
 def _log_tool_use(block: ToolUseBlock, prefix: str) -> None:

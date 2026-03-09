@@ -19,7 +19,7 @@ from ccbot.config import AgentConfig
 from ccbot.memory import MemoryStore
 from ccbot.observability import configure_langsmith_once
 from ccbot.runtime.profiles import RuntimeRole, build_sdk_options
-from ccbot.runtime.sdk_utils import build_stderr_logger
+from ccbot.runtime.sdk_utils import build_stderr_capture
 from ccbot.workspace import WorkspaceManager
 
 if TYPE_CHECKING:
@@ -53,6 +53,7 @@ class AgentPool:
         self._last_used: dict[str, float] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._cleanup_task: asyncio.Task[None] | None = None
+        self._stderr_captures: dict[str, object] = {}
         self._running = False
 
     async def start(self) -> None:
@@ -95,6 +96,7 @@ class AgentPool:
         client = self._clients.pop(chat_id, None)
         self._last_used.pop(chat_id, None)
         self._locks.pop(chat_id, None)
+        self._stderr_captures.pop(chat_id, None)
 
         if client:
             try:
@@ -119,6 +121,15 @@ class AgentPool:
             "active_clients": len(self._clients),
             "idle_timeout": self._idle_timeout,
         }
+
+    def get_recent_stderr(self, chat_id: str, *, limit: int = 8) -> str:
+        capture = self._stderr_captures.get(chat_id)
+        if capture is None:
+            return ""
+        snapshot = getattr(capture, "snapshot", None)
+        if callable(snapshot):
+            return snapshot(limit=limit)
+        return ""
 
     async def _create_client(self, chat_id: str) -> ClaudeSDKClient:
         """创建新的 ClaudeSDKClient。"""
@@ -162,10 +173,12 @@ class AgentPool:
             kwargs["resume"] = resume_session_id
             kwargs["continue_conversation"] = True
 
-        kwargs["stderr"] = build_stderr_logger(f"[sdk:{self._role.value}:{chat_id}]")
+        stderr_capture = build_stderr_capture(f"[sdk:{self._role.value}:{chat_id}]")
+        kwargs["stderr"] = stderr_capture.callback
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
         await client.connect()
+        self._stderr_captures[chat_id] = stderr_capture
         return client
 
     async def _cleanup_loop(self) -> None:
@@ -198,6 +211,7 @@ class AgentPool:
         self._clients.clear()
         self._last_used.clear()
         self._locks.clear()
+        self._stderr_captures.clear()
 
         for chat_id, client in clients:
             try:

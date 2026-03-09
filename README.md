@@ -21,6 +21,7 @@
 - `docs/CLAUDE_RUNTIME.md`：Claude SDK、runtime profile、memory
 - `docs/CHANNELS_AND_OPERATIONS.md`：Channel、workspace、运行与回归
 - `docs/OBSERVABILITY_AND_TROUBLESHOOTING.md`：LangSmith、日志、排障
+- `docs/PROJECT_REVIEW.md`：当前架构评审与演进建议（补充阅读）
 
 兼容旧引用的专题入口仍保留在 `docs/` 下，但已逐步收敛为跳转页。
 
@@ -108,7 +109,7 @@ Supervisor 分析 → SupervisorResponse (structured output)
   mode=schedule_create → 创建定时任务
 ```
 
-详见 `docs/ARCHITECTURE.md`。
+详见 `docs/PRODUCT_ARCHITECTURE.md`。
 
 ## 可观测性
 
@@ -124,7 +125,7 @@ export LANGSMITH_API_KEY=lsv2_xxx
 export LANGSMITH_PROJECT=ccbot-dev
 ```
 
-详见 `docs/LANGSMITH_INTEGRATION.md`。
+详见 `docs/OBSERVABILITY_AND_TROUBLESHOOTING.md`。
 
 ## 多 Agent 调度
 

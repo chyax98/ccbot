@@ -340,3 +340,54 @@ async def test_supervisor_result_persists_runtime_session_and_turns(ws: Workspac
     memory = store.load("chat1")
     assert memory.runtime_session_id == "sess-123"
     assert [turn.role for turn in memory.short_term] == ["user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_ask_process_error_includes_recent_stderr(agent: CCBotAgent) -> None:
+    from claude_agent_sdk._errors import ProcessError
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.query = AsyncMock(
+        side_effect=ProcessError(
+            "Command failed with exit code 1",
+            exit_code=1,
+            stderr="Check stderr output for details",
+        )
+    )
+    mock_client.disconnect = AsyncMock()
+
+    with patch("claude_agent_sdk.ClaudeSDKClient", return_value=mock_client):
+        agent._pool.get_recent_stderr = MagicMock(return_value="fatal: boom")
+        reply = await agent.ask("chat1", "Hello")
+
+    assert "exit code: 1" in reply
+    assert "fatal: boom" in reply
+    assert "chat1" not in agent._pool._clients
+
+
+@pytest.mark.asyncio
+async def test_ask_retries_once_after_process_exit(agent: CCBotAgent) -> None:
+    from claude_agent_sdk import AssistantMessage, TextBlock
+    from claude_agent_sdk._errors import ProcessError
+
+    broken_client = MagicMock()
+    broken_client.connect = AsyncMock()
+    broken_client.query = AsyncMock(side_effect=ProcessError("boom", exit_code=1))
+    broken_client.disconnect = AsyncMock()
+
+    healthy_client = MagicMock()
+    healthy_client.connect = AsyncMock()
+    healthy_client.query = AsyncMock()
+    healthy_client.disconnect = AsyncMock()
+
+    async def _receive():
+        yield AssistantMessage(content=[TextBlock(text="ok after retry")], model="m")
+
+    healthy_client.receive_response = _receive
+
+    with patch("claude_agent_sdk.ClaudeSDKClient", side_effect=[broken_client, healthy_client]):
+        reply = await agent.ask("chat1", "Hello")
+
+    assert reply == "ok after retry"
+    broken_client.disconnect.assert_awaited_once()

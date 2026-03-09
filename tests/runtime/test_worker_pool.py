@@ -288,3 +288,25 @@ class TestWorkerPoolLifecycle:
             await pool.get_or_create(_make_task())
         await pool.stop()
         assert not pool.has_worker("fe")
+
+
+    @pytest.mark.asyncio
+    async def test_send_retries_once_after_process_exit(self, pool: WorkerPool) -> None:
+        from claude_agent_sdk._errors import ProcessError
+
+        broken = _mock_client()
+        healthy = _mock_client()
+
+        with (
+            patch.object(pool, "_create_client", side_effect=[broken, healthy]),
+            patch(
+                "ccbot.runtime.worker_pool.query_and_collect",
+                side_effect=[ProcessError("boom", exit_code=1), "ok"],
+            ),
+        ):
+            await pool.get_or_create(_make_task())
+            result = await pool.send("fe", "hello")
+
+        assert result == "ok"
+        broken.disconnect.assert_awaited_once()
+        assert pool._info["fe"].task_count == 1

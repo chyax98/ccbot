@@ -14,7 +14,12 @@ from ccbot.config import AgentConfig
 from ccbot.memory import MemoryStore
 from ccbot.runtime import AgentPool
 from ccbot.runtime.profiles import RuntimeRole
-from ccbot.runtime.sdk_utils import AgentRunResult, query_and_collect_result
+from ccbot.runtime.sdk_utils import (
+    AgentRunResult,
+    format_sdk_error,
+    is_retryable_sdk_error,
+    query_and_collect_result,
+)
 from ccbot.workspace import WorkspaceManager
 
 _HELP_TEXT = """\
@@ -118,24 +123,38 @@ class CCBotAgent:
         logger.info("[{}] ← {}", chat_id, prompt[:120])
 
         async with self._get_lock(chat_id):
-            try:
-                client = await self._pool.acquire(chat_id)
-                result = await query_and_collect_result(
-                    client,
-                    prompt,
-                    session_id=chat_id,
-                    on_progress=on_progress,
-                    log_prefix=f"[{chat_id}]",
-                )
-                logger.info("[{}] → {} chars", chat_id, len(result.text))
-                if self._memory_store is not None and self._role == RuntimeRole.SUPERVISOR:
-                    if result.runtime_session_id:
-                        self._memory_store.set_runtime_session(chat_id, result.runtime_session_id)
-                    self._memory_store.remember_turn(chat_id, prompt, result.text)
-                await self._pool.release(chat_id)
-                return result
+            for attempt in range(2):
+                try:
+                    client = await self._pool.acquire(chat_id)
+                    result = await query_and_collect_result(
+                        client,
+                        prompt,
+                        session_id=chat_id,
+                        on_progress=on_progress,
+                        log_prefix=f"[{chat_id}]",
+                    )
+                    logger.info("[{}] → {} chars", chat_id, len(result.text))
+                    if self._memory_store is not None and self._role == RuntimeRole.SUPERVISOR:
+                        if result.runtime_session_id:
+                            self._memory_store.set_runtime_session(chat_id, result.runtime_session_id)
+                        self._memory_store.remember_turn(chat_id, prompt, result.text)
+                    await self._pool.release(chat_id)
+                    return result
 
-            except Exception as e:
-                logger.error("[{}] Agent 出错: {}", chat_id, e)
-                await self._close_session(chat_id)
-                return AgentRunResult(text=f"抱歉，处理消息时出现错误: {e}")
+                except Exception as e:
+                    recent_stderr = self._pool.get_recent_stderr(chat_id)
+                    if recent_stderr:
+                        logger.error("[{}] Agent 出错: {}\nRecent stderr:\n{}", chat_id, e, recent_stderr)
+                    else:
+                        logger.error("[{}] Agent 出错: {}", chat_id, e)
+
+                    should_retry = attempt == 0 and is_retryable_sdk_error(e)
+                    await self._close_session(chat_id)
+
+                    if should_retry:
+                        logger.warning("[{}] 检测到 Claude 会话异常退出，正在重建后重试一次", chat_id)
+                        continue
+
+                    return AgentRunResult(text=format_sdk_error(e, recent_stderr))
+
+            return AgentRunResult(text="抱歉，处理消息时出现未知错误。")
