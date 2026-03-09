@@ -213,6 +213,14 @@ class AgentTeam:
 
         if on_worker_result is not None:
             pre_text = user_message or _extract_pre_dispatch_text(supervisor_reply)
+
+            # 预加载 Worker：确保 Worker 创建完成后再返回，防止并发竞争
+            try:
+                await self._worker_pool.preload_workers(dispatch.tasks)
+            except Exception as exc:
+                logger.error("预加载 Worker 失败: {}", exc)
+                return f"无法启动 Worker: {exc}"
+
             task = asyncio.create_task(
                 self._run_workers_async(chat_id, prompt, dispatch, on_progress, on_worker_result),
                 name=f"worker-dispatch:{chat_id}",

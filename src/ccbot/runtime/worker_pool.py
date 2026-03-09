@@ -84,6 +84,7 @@ class WorkerPool:
         logger.info("WorkerPool 已停止")
 
     async def get_or_create(self, task: WorkerTask) -> None:
+        """获取或创建 Worker。"""
         if task.name in self._clients:
             logger.info("复用已有 Worker: name={}", task.name)
             return
@@ -104,6 +105,17 @@ class WorkerPool:
             task.cwd,
             task.model or "default",
         )
+
+    async def preload_workers(self, tasks: list[WorkerTask]) -> None:
+        """预加载所有 Worker，确保它们在返回前都已就绪。
+
+        用于防止后台派发时，消息队列认为处理已完成，导致并发创建 Worker。
+        """
+        for task in tasks:
+            await self.get_or_create(task)
+            # 短暂等待确保 Worker 完全初始化
+            await asyncio.sleep(0.1)
+        logger.info("预加载完成: {} 个 Worker", len(tasks))
 
     async def send(
         self,
@@ -234,6 +246,12 @@ class WorkerPool:
 
     async def _create_client(self, task: WorkerTask) -> ClaudeSDKClient:
         """创建 ClaudeSDKClient。"""
+        # 清除 CLAUDECODE 环境变量，避免 CLI 的嵌套会话检测阻止启动
+        import os
+
+        if "CLAUDECODE" in os.environ:
+            del os.environ["CLAUDECODE"]
+
         configure_langsmith_once(self._base_config)
 
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
