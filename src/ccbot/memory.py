@@ -17,6 +17,23 @@ from pathlib import Path
 
 _CHAT_ID_SANITIZER = re.compile(r"[^a-zA-Z0-9_.-]+")
 
+# per-turn runtime_context 标签，存入短期记忆前过滤，避免污染历史快照
+_RUNTIME_CTX_RE = re.compile(r"<runtime_context>[\s\S]*?</runtime_context>\s*", re.DOTALL)
+
+
+def _strip_runtime_context(text: str) -> str:
+    """移除 <runtime_context>...</runtime_context> 块，返回纯用户消息文本。"""
+    return _RUNTIME_CTX_RE.sub("", text).strip()
+
+
+def _memory_turn_date() -> str:
+    """Return a stable UTC date string for short-term memory turns.
+
+    只保留日期，不保留秒级时间戳，避免短期记忆文件和潜在 prompt 注入
+    因时间抖动而降低 KV cache 命中。
+    """
+    return datetime.now(UTC).date().isoformat()
+
 
 @dataclass(slots=True)
 class MemoryTurn:
@@ -40,7 +57,9 @@ class MemoryStore:
         self._workspace_path = workspace_path
         self._root = workspace_path / ".ccbot" / "memory"
         self._max_short_term_turns = max_short_term_turns
-        self._conversations_dir = self._root / "conversations"
+        self._conversations_dir = (
+            self._root / "conversations"
+        )  # todo: claude agent sdk 是否会保留conversations
         self._conversations_dir.mkdir(parents=True, exist_ok=True)
         self._long_term_file = self._root / "long_term.md"
         self._bootstrap_files()
@@ -85,9 +104,13 @@ class MemoryStore:
     def remember_turn(
         self, chat_id: str, user_text: str, assistant_text: str
     ) -> ConversationMemory:
+        # 存入前过滤 runtime_context 块：避免短期记忆被 Worker 状态、
+        # 定时任务列表、时间戳等动态系统信息污染
+        user_text = _strip_runtime_context(user_text)
+
         memory = self.load(chat_id)
         turns = deque(memory.short_term, maxlen=self._max_short_term_turns)
-        now = datetime.now(UTC).isoformat()
+        now = _memory_turn_date()
         if user_text.strip():
             turns.append(MemoryTurn(role="user", content=user_text.strip(), created_at=now))
         if assistant_text.strip():
@@ -110,6 +133,7 @@ class MemoryStore:
             path.unlink()
 
     def build_memory_prompt(self, chat_id: str) -> str:
+        """冷启动时注入完整记忆：长期记忆 + 短期对话快照。"""
         memory = self.load(chat_id)
         sections: list[str] = []
 
@@ -117,7 +141,7 @@ class MemoryStore:
         if long_term:
             sections.append(
                 "## 长期记忆（持久事实）\n"
-                "以下内容来自 ccbot 自维护的长期记忆文件，仅保留稳定、可复用的信息：\n"
+                "以下内容来自 ccbot 自维护的长期记忆文件，仅保留稳定、可复用的信息：\n"  # todo: clear tag
                 f"{long_term}"
             )
 
@@ -135,7 +159,7 @@ class MemoryStore:
         if not sections:
             return ""
 
-        return (
+        return (  # todo 改为 xml格式
             "\n\n---\n\n"
             "# ccbot Memory Context\n"
             "你正在读取 ccbot 自维护的记忆系统。\n"
@@ -143,6 +167,27 @@ class MemoryStore:
             "- 短期记忆：最近对话摘要，用于启动后的续接\n"
             "若发现其中内容已过时，应在后续任务中更新对应文件而不是盲信。\n\n"
             + "\n\n".join(sections)
+        )
+
+    def build_long_term_prompt(self, chat_id: str) -> str:
+        """Session resume 时只注入长期记忆。
+
+        SDK resume 已恢复完整对话历史，短期记忆与 conversation history 重复且
+        可能因格式差异产生语义冲突，故跳过。只注入长期记忆作为稳定事实参考。
+        """
+        long_term = self._read_trimmed(self._long_term_file)
+        if not long_term:
+            return ""
+
+        return (
+            "\n\n---\n\n"
+            "# ccbot Memory Context\n"
+            "当前会话已通过 session resume 恢复，对话历史完整保留。\n"
+            "以下仅包含长期记忆（稳定事实），短期对话历史已在会话中，无需重复注入。\n"
+            "若发现其中内容已过时，应在后续任务中更新对应文件而不是盲信。\n\n"
+            "## 长期记忆（持久事实）\n"
+            "以下内容来自 ccbot 自维护的长期记忆文件，仅保留稳定、可复用的信息：\n"
+            f"{long_term}"
         )
 
     def _bootstrap_files(self) -> None:

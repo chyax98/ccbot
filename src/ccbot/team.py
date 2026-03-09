@@ -149,18 +149,21 @@ class AgentTeam:
         if control_reply is not None:
             return control_reply
 
+        # 当前时间始终注入：Supervisor 每轮获得准确的时间参考
+        # 时间不放在 session 创建时的 system prompt，避免长会话中时间过期
+        now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
+        context_parts = [f"Current time: {now}"]
+
         worker_status = self._worker_pool.format_status()
+        if worker_status:
+            context_parts.append(worker_status)
+
         schedule_status = self._scheduler.format_status() if self._scheduler is not None else ""
-        extra_sections = [section for section in (worker_status, schedule_status) if section]
-        # 用 <runtime_context> 前置注入，与用户消息保持明确边界
-        # 避免 Supervisor 将系统状态误解为用户指令
-        if extra_sections:
-            context_block = (
-                "<runtime_context>\n" + "\n\n".join(extra_sections) + "\n</runtime_context>"
-            )
-            enhanced_prompt = f"{context_block}\n\n{prompt}"
-        else:
-            enhanced_prompt = prompt
+        if schedule_status:
+            context_parts.append(schedule_status)
+
+        context_block = "<runtime_context>\n" + "\n\n".join(context_parts) + "\n</runtime_context>"
+        enhanced_prompt = f"{context_block}\n\n{prompt}"
 
         if on_progress:
             await on_progress("📋 分析任务中...")

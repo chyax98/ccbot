@@ -149,9 +149,13 @@ class AgentPool:
         memory_prompt = ""
         resume_session_id = ""
         if self._role == RuntimeRole.SUPERVISOR and self._memory_store is not None:
-            memory_prompt = self._memory_store.build_memory_prompt(chat_id)
             if self._config.supervisor_resume_enabled:
                 resume_session_id = self._memory_store.load(chat_id).runtime_session_id
+            if resume_session_id:
+                # SDK resume 已恢复完整对话历史，只注入长期记忆，避免短期记忆重复
+                memory_prompt = self._memory_store.build_long_term_prompt(chat_id)
+            else:
+                memory_prompt = self._memory_store.build_memory_prompt(chat_id)
 
         extra_prompt = "\n\n---\n\n".join(
             part for part in (memory_prompt, self._extra_system_prompt) if part

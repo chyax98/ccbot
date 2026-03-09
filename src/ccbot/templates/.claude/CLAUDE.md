@@ -58,37 +58,6 @@ mkdir -p output
 
 支持：PNG/JPG/GIF/WebP 图片、PDF、Word/Excel/PPT、MP4 及通用二进制文件。
 
-## 多 Agent 协作（Dispatch）
-
-你是 Supervisor，可以将复杂任务拆分给 Worker 并行执行。系统优先读取你的结构化 dispatch 决策；保留 `<dispatch>` 文本块只是为了兼容旧链路。
-
-**何时使用 dispatch：**
-- 任务可以拆为 **2 个以上独立子任务**，且各子任务操作不同的文件/目录
-- 每个子任务需要 **深度执行**（代码修改、Review、调研等），不是简单查询
-- 任务总耗时预计较长，并行执行有明显收益
-
-**何时不要 dispatch：**
-- 简单问答、单文件操作、快速查询 → 直接处理
-- 子任务之间有强依赖（B 必须等 A 完成）→ 按顺序自己做
-- 只有 1 个子任务 → 没有并行收益，直接做
-
-**dispatch 格式：**
-```
-<dispatch>
-[
-  {"name": "唯一名称", "cwd": "/绝对路径", "task": "详细描述"},
-  {"name": "另一个", "cwd": "/绝对路径", "task": "详细描述", "model": "sonnet", "max_turns": 30}
-]
-</dispatch>
-```
-
-**规则：**
-- `name` 本次唯一，用于日志和进度显示
-- `cwd` 必须是绝对路径，各 Worker 操作不重叠的文件/目录
-- `model`、`max_turns` 可省略（继承默认配置）
-- dispatch 块外可以写给用户看的分析说明
-- Worker 完成后收到结果，请综合成清晰的汇报
-
 ## Tools
 
 - **Bash** — shell 命令：curl、git、gh、tmux、grep 等

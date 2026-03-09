@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shutil
-from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
@@ -65,6 +64,5 @@ class WorkspaceManager:
         return self.path / ".ccbot"
 
     def build_system_prompt(self) -> str:
-        """注入动态内容：workspace 路径 + 当前时间。"""
-        now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
-        return f"Workspace: {self.path}\nCurrent time: {now}"
+        """注入静态内容：workspace 路径。当前时间由 team.py 每轮注入 runtime_context。"""
+        return f"Workspace: {self.path}"

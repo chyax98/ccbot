@@ -133,15 +133,17 @@ class SchedulerService:
         await self._run_job(job)
         return True
 
-    def format_status(self) -> str:
+    def format_status(self, max_shown: int = 5) -> str:
         if not self._jobs:
             return ""
+        enabled_jobs = [j for j in self.list_jobs() if j.enabled]
+        if not enabled_jobs:
+            return ""
         lines = ["[系统信息] 当前定时任务:"]
-        for job in self.list_jobs():
-            state = "启用" if job.enabled else "暂停"
-            lines.append(
-                f"- {job.job_id} {job.name} ({state}): cron={job.cron_expr}, next={job.next_run_at}"
-            )
+        for job in enabled_jobs[:max_shown]:
+            lines.append(f"- {job.job_id} {job.name}: cron={job.cron_expr}, next={job.next_run_at}")
+        if len(enabled_jobs) > max_shown:
+            lines.append(f"...（共 {len(enabled_jobs)} 个启用任务，/schedule list 查看全部）")
         return "\n".join(lines)
 
     async def _loop(self) -> None:

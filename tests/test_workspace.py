@@ -41,11 +41,14 @@ def test_build_system_prompt_contains_workspace_path(ws: WorkspaceManager) -> No
     assert str(ws.path) in prompt
 
 
-def test_build_system_prompt_contains_time(ws: WorkspaceManager) -> None:
+def test_build_system_prompt_no_time(ws: WorkspaceManager) -> None:
+    """时间改由 team.py 每轮注入 runtime_context，不应出现在 system prompt 中。"""
     import re
 
     prompt = ws.build_system_prompt()
-    assert re.search(r"\d{4}-\d{2}-\d{2}", prompt), "prompt should contain date"
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", prompt), (
+        "time should not be in system prompt (injected per-turn in runtime_context)"
+    )
 
 
 def test_build_system_prompt_is_concise(ws: WorkspaceManager) -> None:
