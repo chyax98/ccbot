@@ -1,14 +1,14 @@
 # ARCHITECTURE
 
 > 本文档已并入模块化文档结构。
-> 请优先阅读  中的模块文档入口。
+> 请优先阅读 `docs/README.md` 中的模块文档入口。
 
 ## 当前入口
 
-- 产品与架构：
-- Claude runtime：
-- Channel 与运行：
-- 可观测性与排障：
+- 产品与架构：`docs/PRODUCT_ARCHITECTURE.md`
+- Claude runtime：`docs/CLAUDE_RUNTIME.md`
+- Channel 与运行：`docs/CHANNELS_AND_OPERATIONS.md`
+- 可观测性与排障：`docs/OBSERVABILITY_AND_TROUBLESHOOTING.md`
 
 ## 说明
 
