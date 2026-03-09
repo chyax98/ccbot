@@ -289,7 +289,6 @@ class TestWorkerPoolLifecycle:
         await pool.stop()
         assert not pool.has_worker("fe")
 
-
     @pytest.mark.asyncio
     async def test_send_retries_once_after_process_exit(self, pool: WorkerPool) -> None:
         from claude_agent_sdk._errors import ProcessError

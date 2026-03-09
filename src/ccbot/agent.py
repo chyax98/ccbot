@@ -136,7 +136,9 @@ class CCBotAgent:
                     logger.info("[{}] → {} chars", chat_id, len(result.text))
                     if self._memory_store is not None and self._role == RuntimeRole.SUPERVISOR:
                         if result.runtime_session_id:
-                            self._memory_store.set_runtime_session(chat_id, result.runtime_session_id)
+                            self._memory_store.set_runtime_session(
+                                chat_id, result.runtime_session_id
+                            )
                         self._memory_store.remember_turn(chat_id, prompt, result.text)
                     await self._pool.release(chat_id)
                     return result
@@ -144,7 +146,9 @@ class CCBotAgent:
                 except Exception as e:
                     recent_stderr = self._pool.get_recent_stderr(chat_id)
                     if recent_stderr:
-                        logger.error("[{}] Agent 出错: {}\nRecent stderr:\n{}", chat_id, e, recent_stderr)
+                        logger.error(
+                            "[{}] Agent 出错: {}\nRecent stderr:\n{}", chat_id, e, recent_stderr
+                        )
                     else:
                         logger.error("[{}] Agent 出错: {}", chat_id, e)
 
@@ -152,7 +156,9 @@ class CCBotAgent:
                     await self._close_session(chat_id)
 
                     if should_retry:
-                        logger.warning("[{}] 检测到 Claude 会话异常退出，正在重建后重试一次", chat_id)
+                        logger.warning(
+                            "[{}] 检测到 Claude 会话异常退出，正在重建后重试一次", chat_id
+                        )
                         continue
 
                     return AgentRunResult(text=format_sdk_error(e, recent_stderr))

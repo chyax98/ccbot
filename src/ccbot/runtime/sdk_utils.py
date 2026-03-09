@@ -25,8 +25,6 @@ if TYPE_CHECKING:
     from claude_agent_sdk import ClaudeSDKClient
 
 
-
-
 @dataclass
 class StderrCapture:
     """Capture recent Claude Code stderr lines for diagnostics."""
