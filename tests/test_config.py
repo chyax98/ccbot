@@ -91,7 +91,7 @@ class TestLoadConfig:
                         "model": "claude-opus-4-6",
                         "max_turns": 50,
                         "langsmith_enabled": True,
-                        "langsmith_project": "ccbot-dev"
+                        "langsmith_project": "ccbot-dev",
                     },
                     "feishu": {"app_id": "test_id"},
                 },

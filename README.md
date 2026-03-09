@@ -16,20 +16,13 @@
 
 建议按下面顺序阅读：
 
-- `docs/README.md`：完整文档地图与阅读路径
-- `docs/ARCHITECTURE.md`：当前推荐架构、运行边界、核心链路
-- `docs/RUNTIME_OPERATIONS.md`：运行目录、配置、启动、回归、预演
-- `docs/TROUBLESHOOTING.md`：常见错误与定位方法
+- `docs/README.md`：模块化文档地图
+- `docs/PRODUCT_ARCHITECTURE.md`：产品定义、架构、边界
+- `docs/CLAUDE_RUNTIME.md`：Claude SDK、runtime profile、memory
+- `docs/CHANNELS_AND_OPERATIONS.md`：Channel、workspace、运行与回归
+- `docs/OBSERVABILITY_AND_TROUBLESHOOTING.md`：LangSmith、日志、排障
 
-专题文档：
-
-- `docs/CLAUDE_AGENT_SDK_CAPABILITY_MAP.md`：Claude Agent SDK 能力盘点
-- `docs/CLAUDE_RUNTIME_PROFILES.md`：Supervisor / Worker / Reviewer 的 runtime profile
-- `docs/LANGSMITH_INTEGRATION.md`：LangSmith tracing 接入
-- `docs/MEMORY_ARCHITECTURE.md`：Supervisor 记忆体系
-- `docs/CHANNEL_ARCHITECTURE.md`：Feishu / Channel 抽象
-- `docs/ARCHITECTURE_REVIEW.md`：为什么当前阶段不做 A2A
-- `docs/PRODUCT_REQUIREMENTS_MODEL.md`：产品需求模型与阶段边界
+兼容旧引用的专题入口仍保留在 `docs/` 下，但已逐步收敛为跳转页。
 
 ## 快速开始
 

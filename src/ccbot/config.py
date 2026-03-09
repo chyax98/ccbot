@@ -114,7 +114,9 @@ def load_config(path: Path = _DEFAULT_CONFIG) -> Config:
     class _Config(Config):
         @classmethod
         def settings_customise_sources(cls, settings_cls, init_settings, env_settings, **_):  # type: ignore[override]
-            json_source = (JsonConfigSettingsSource(settings_cls, json_file=path),) if path.exists() else ()
+            json_source = (
+                (JsonConfigSettingsSource(settings_cls, json_file=path),) if path.exists() else ()
+            )
             return (init_settings, *json_source, env_settings)
 
     return _Config()

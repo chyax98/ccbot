@@ -111,8 +111,6 @@ async def query_and_collect(
     return result.text
 
 
-
-
 def build_stderr_logger(prefix: str):
     """Build a Claude SDK stderr callback that forwards CLI stderr into loguru."""
 
@@ -120,6 +118,7 @@ def build_stderr_logger(prefix: str):
         logger.warning("{} STDERR | {}", prefix, line)
 
     return _callback
+
 
 def _log_tool_use(block: ToolUseBlock, prefix: str) -> None:
     """记录工具调用详情。"""

@@ -240,7 +240,9 @@ class SchedulerService:
 
     def _save_jobs(self) -> None:
         payload = {"jobs": [job.model_dump() for job in self.list_jobs()]}
-        self._jobs_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._jobs_file.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     @staticmethod
     def _compute_next_run(

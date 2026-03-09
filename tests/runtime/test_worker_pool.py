@@ -60,8 +60,10 @@ class TestWorkerPoolBasic:
     async def test_send_task(self, pool: WorkerPool) -> None:
         """send 应调用 query_and_collect 并更新元数据。"""
         mock = _mock_client()
-        with patch.object(pool, "_create_client", return_value=mock), \
-             patch("ccbot.runtime.worker_pool.query_and_collect", return_value="done!") as qac:
+        with (
+            patch.object(pool, "_create_client", return_value=mock),
+            patch("ccbot.runtime.worker_pool.query_and_collect", return_value="done!") as qac,
+        ):
             await pool.get_or_create(_make_task())
             result = await pool.send("fe", "build login page")
 
@@ -75,8 +77,10 @@ class TestWorkerPoolBasic:
     async def test_send_multiple_tasks(self, pool: WorkerPool) -> None:
         """多次 send 应累加 task_count。"""
         mock = _mock_client()
-        with patch.object(pool, "_create_client", return_value=mock), \
-             patch("ccbot.runtime.worker_pool.query_and_collect", return_value="ok"):
+        with (
+            patch.object(pool, "_create_client", return_value=mock),
+            patch("ccbot.runtime.worker_pool.query_and_collect", return_value="ok"),
+        ):
             await pool.get_or_create(_make_task())
             await pool.send("fe", "task 1")
             await pool.send("fe", "task 2")
@@ -180,14 +184,15 @@ class TestWorkerPoolLifecycle:
     @pytest.mark.asyncio
     async def test_send_error_resets_status(self, pool: WorkerPool) -> None:
         mock = _mock_client()
-        with patch.object(pool, "_create_client", return_value=mock), \
-             patch("ccbot.runtime.worker_pool.query_and_collect", side_effect=RuntimeError("oops")):
+        with (
+            patch.object(pool, "_create_client", return_value=mock),
+            patch("ccbot.runtime.worker_pool.query_and_collect", side_effect=RuntimeError("oops")),
+        ):
             await pool.get_or_create(_make_task())
             with pytest.raises(RuntimeError, match="oops"):
                 await pool.send("fe", "broken")
         assert pool._info["fe"].status == WorkerStatus.IDLE
         assert pool._info["fe"].task_count == 0
-
 
     @pytest.mark.asyncio
     async def test_create_client_uses_claude_code_preset_and_project_settings(
@@ -202,9 +207,11 @@ class TestWorkerPoolLifecycle:
 
         dummy_client = _mock_client()
 
-        with patch("ccbot.runtime.worker_pool._setup_worker_workspace"), patch(
-            "claude_agent_sdk.ClaudeAgentOptions", DummyOptions
-        ), patch("claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client):
+        with (
+            patch("ccbot.runtime.worker_pool._setup_worker_workspace"),
+            patch("claude_agent_sdk.ClaudeAgentOptions", DummyOptions),
+            patch("claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client),
+        ):
             await pool._create_client(_make_task())
 
         assert options_seen["system_prompt"]["type"] == "preset"
@@ -231,15 +238,17 @@ class TestWorkerPoolLifecycle:
 
         dummy_client = _mock_client()
 
-        with patch("ccbot.runtime.worker_pool._setup_worker_workspace"), patch(
-            "claude_agent_sdk.ClaudeAgentOptions", DummyOptions
-        ), patch("claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client):
+        with (
+            patch("ccbot.runtime.worker_pool._setup_worker_workspace"),
+            patch("claude_agent_sdk.ClaudeAgentOptions", DummyOptions),
+            patch("claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client),
+        ):
             await pool._create_client(_make_task())
 
         assert options_seen["setting_sources"] == ["project"]
         assert options_seen["disallowed_tools"] == ["Agent", "SendMessage"]
         assert callable(options_seen["stderr"])
-        assert options_seen["settings"] == "{\"env\": {\"FOO\": \"BAR\"}}"
+        assert options_seen["settings"] == '{"env": {"FOO": "BAR"}}'
 
     @pytest.mark.asyncio
     async def test_stop_ignores_disconnect_base_exception(self, pool: WorkerPool) -> None:

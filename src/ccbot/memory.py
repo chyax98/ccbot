@@ -82,14 +82,18 @@ class MemoryStore:
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def remember_turn(self, chat_id: str, user_text: str, assistant_text: str) -> ConversationMemory:
+    def remember_turn(
+        self, chat_id: str, user_text: str, assistant_text: str
+    ) -> ConversationMemory:
         memory = self.load(chat_id)
         turns = deque(memory.short_term, maxlen=self._max_short_term_turns)
         now = datetime.now(UTC).isoformat()
         if user_text.strip():
             turns.append(MemoryTurn(role="user", content=user_text.strip(), created_at=now))
         if assistant_text.strip():
-            turns.append(MemoryTurn(role="assistant", content=assistant_text.strip(), created_at=now))
+            turns.append(
+                MemoryTurn(role="assistant", content=assistant_text.strip(), created_at=now)
+            )
         memory.short_term = list(turns)
         self.save(memory)
         return memory
@@ -119,7 +123,8 @@ class MemoryStore:
 
         if memory.short_term:
             rendered_turns = "\n".join(
-                f"- {turn.role}: {turn.content}" for turn in memory.short_term[-self._max_short_term_turns:]
+                f"- {turn.role}: {turn.content}"
+                for turn in memory.short_term[-self._max_short_term_turns :]
             )
             sections.append(
                 "## 短期记忆（最近对话）\n"

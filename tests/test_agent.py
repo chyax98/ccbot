@@ -311,12 +311,12 @@ def test_supervisor_new_clears_memory(ws: WorkspaceManager) -> None:
     from ccbot.memory import MemoryStore
 
     store = MemoryStore(ws.path)
-    store.set_runtime_session('chat1', 'sess-123')
+    store.set_runtime_session("chat1", "sess-123")
     agent = CCBotAgent(AgentConfig(), ws, memory_store=store)
 
-    asyncio.run(agent.ask_run('chat1', '/new'))
+    asyncio.run(agent.ask_run("chat1", "/new"))
 
-    assert not store.conversation_file('chat1').exists()
+    assert not store.conversation_file("chat1").exists()
 
 
 @pytest.mark.asyncio
@@ -330,10 +330,13 @@ async def test_supervisor_result_persists_runtime_session_and_turns(ws: Workspac
     agent._pool.release = AsyncMock()
     agent._pool.close = AsyncMock()
 
-    with patch('ccbot.agent.query_and_collect_result', AsyncMock(return_value=AgentRunResult('ok', runtime_session_id='sess-123'))):
-        result = await agent.ask_run('chat1', 'hello')
+    with patch(
+        "ccbot.agent.query_and_collect_result",
+        AsyncMock(return_value=AgentRunResult("ok", runtime_session_id="sess-123")),
+    ):
+        result = await agent.ask_run("chat1", "hello")
 
-    assert result.runtime_session_id == 'sess-123'
-    memory = store.load('chat1')
-    assert memory.runtime_session_id == 'sess-123'
-    assert [turn.role for turn in memory.short_term] == ['user', 'assistant']
+    assert result.runtime_session_id == "sess-123"
+    memory = store.load("chat1")
+    assert memory.runtime_session_id == "sess-123"
+    assert [turn.role for turn in memory.short_term] == ["user", "assistant"]

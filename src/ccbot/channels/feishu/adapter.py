@@ -128,7 +128,17 @@ class FeishuChannel(Channel):
     @staticmethod
     def _is_control_command(event_json: str) -> bool:
         """检查是否为控制命令（不防抖）。"""
-        control_commands = {"/new", "/stop", "/help", "/reset", "/clear", "/workers", "/memory show", "/memory clear", "/schedule list"}
+        control_commands = {
+            "/new",
+            "/stop",
+            "/help",
+            "/reset",
+            "/clear",
+            "/workers",
+            "/memory show",
+            "/memory clear",
+            "/schedule list",
+        }
         try:
             event = json.loads(event_json)
             content = event.get("message", {}).get("content", "")
@@ -328,7 +338,12 @@ class FeishuChannel(Channel):
                         message_id=message_id,
                         thread_id=root_id or message_id,
                         mentions_bot=True,
-                        metadata={"chat_id": chat_id, "chat_type": chat_type, "message_id": message_id, "root_id": root_id or ""},
+                        metadata={
+                            "chat_id": chat_id,
+                            "chat_type": chat_type,
+                            "message_id": message_id,
+                            "root_id": root_id or "",
+                        },
                     ),
                     timeout=timeout,
                 )
@@ -374,7 +389,6 @@ class FeishuChannel(Channel):
         if "*" in allow_list:
             return True
         return sender_id in allow_list
-
 
     # ==================== Lark SDK 集成 ====================
 

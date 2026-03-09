@@ -189,9 +189,7 @@ async def send_single(
         if not response.success():
             # 回复目标消息已被撤回/不存在时，降级为直接发送
             if reply_to_message_id and response.code in (230001, 230002, 230003):
-                logger.warning(
-                    "回复目标消息不可用 (code={})，降级为直接发送", response.code
-                )
+                logger.warning("回复目标消息不可用 (code={})，降级为直接发送", response.code)
                 await send_single(client, target, content, msg_type=msg_type)
                 return
             logger.error("发送失败: code={}, msg={}", response.code, response.msg)

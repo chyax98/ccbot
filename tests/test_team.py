@@ -46,8 +46,10 @@ def _mock_worker_pool(worker_replies: dict[str, str] | None = None) -> WorkerPoo
     pool.get_or_create = AsyncMock(return_value=mock_worker)
 
     if worker_replies:
+
         async def fake_send(name: str, task: str, on_progress=None) -> str:
             return worker_replies.get(name, "default result")
+
         pool.send = AsyncMock(side_effect=fake_send)
     else:
         pool.send = AsyncMock(return_value="worker output")
@@ -86,7 +88,9 @@ async def test_dispatch_runs_workers_and_synthesizes(team: AgentTeam) -> None:
 """
     # Supervisor: 第一次返回 dispatch 计划，第二次返回综合回复
     supervisor = MagicMock(spec=CCBotAgent)
-    supervisor.ask_run = AsyncMock(side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("综合结果：前后端已完成")])
+    supervisor.ask_run = AsyncMock(
+        side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("综合结果：前后端已完成")]
+    )
     supervisor.last_chat_id = None
     team._supervisor = supervisor
 
@@ -106,7 +110,9 @@ async def test_dispatch_runs_workers_and_synthesizes(team: AgentTeam) -> None:
 async def test_dispatch_synthesis_contains_worker_results(team: AgentTeam) -> None:
     dispatch_plan = '<dispatch>[{"name": "w1", "cwd": "/x", "task": "t1"}]</dispatch>'
     supervisor = MagicMock(spec=CCBotAgent)
-    supervisor.ask_run = AsyncMock(side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("综合完毕")])
+    supervisor.ask_run = AsyncMock(
+        side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("综合完毕")]
+    )
     supervisor.last_chat_id = None
     team._supervisor = supervisor
 
@@ -125,7 +131,9 @@ async def test_dispatch_synthesis_contains_worker_results(team: AgentTeam) -> No
 async def test_dispatch_worker_failure_marked_in_synthesis(team: AgentTeam) -> None:
     dispatch_plan = '<dispatch>[{"name": "bad", "cwd": "/x", "task": "t"}]</dispatch>'
     supervisor = MagicMock(spec=CCBotAgent)
-    supervisor.ask_run = AsyncMock(side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("ok")])
+    supervisor.ask_run = AsyncMock(
+        side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("ok")]
+    )
     supervisor.last_chat_id = None
     team._supervisor = supervisor
 
@@ -158,7 +166,9 @@ async def test_dispatch_invalid_json_falls_back(team: AgentTeam) -> None:
 async def test_on_progress_tagged_with_worker_name(team: AgentTeam) -> None:
     dispatch_plan = '<dispatch>[{"name": "fe", "cwd": "/fe", "task": "t"}]</dispatch>'
     supervisor = MagicMock(spec=CCBotAgent)
-    supervisor.ask_run = AsyncMock(side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("done")])
+    supervisor.ask_run = AsyncMock(
+        side_effect=[AgentRunResult(dispatch_plan), AgentRunResult("done")]
+    )
     supervisor.last_chat_id = None
     team._supervisor = supervisor
 
@@ -194,7 +204,9 @@ async def test_worker_status_injected_into_supervisor_prompt(team: AgentTeam) ->
     """活跃 Worker 状态应被注入到 Supervisor 收到的 prompt 中。"""
     team._supervisor = _mock_agent("直接回答")
     pool = _mock_worker_pool()
-    pool.format_status = MagicMock(return_value="[系统信息] 当前活跃 Workers:\n- fe (空闲 30s): cwd=/fe")
+    pool.format_status = MagicMock(
+        return_value="[系统信息] 当前活跃 Workers:\n- fe (空闲 30s): cwd=/fe"
+    )
     team._worker_pool = pool
 
     await team.ask("chat1", "你好")
@@ -229,7 +241,14 @@ async def test_worker_reuse_via_same_name(team: AgentTeam) -> None:
     dispatch2 = '<dispatch>[{"name": "fe", "cwd": "/fe", "task": "task2"}]</dispatch>'
 
     supervisor = MagicMock(spec=CCBotAgent)
-    supervisor.ask_run = AsyncMock(side_effect=[AgentRunResult(dispatch1), AgentRunResult("综合1"), AgentRunResult(dispatch2), AgentRunResult("综合2")])
+    supervisor.ask_run = AsyncMock(
+        side_effect=[
+            AgentRunResult(dispatch1),
+            AgentRunResult("综合1"),
+            AgentRunResult(dispatch2),
+            AgentRunResult("综合2"),
+        ]
+    )
     supervisor.last_chat_id = None
     team._supervisor = supervisor
 
@@ -258,6 +277,7 @@ def test_last_chat_id_delegates_to_supervisor(team: AgentTeam) -> None:
 
 def test_worker_pool_property(team: AgentTeam) -> None:
     assert isinstance(team.worker_pool, WorkerPool)
+
 
 @pytest.mark.asyncio
 async def test_async_dispatch_task_is_tracked_and_stopped(team: AgentTeam) -> None:
@@ -301,6 +321,7 @@ async def test_async_dispatch_task_is_tracked_and_stopped(team: AgentTeam) -> No
     pool.stop.assert_awaited_once()
     supervisor.stop.assert_awaited_once()
 
+
 @pytest.mark.asyncio
 async def test_structured_supervisor_response_skips_text_dispatch_parsing(team: AgentTeam) -> None:
     """优先使用 structured_output，而不是依赖 <dispatch> 文本协议。"""
@@ -313,7 +334,12 @@ async def test_structured_supervisor_response_skips_text_dispatch_parsing(team: 
         ],
     }
     supervisor = _mock_agent("纯文本说明，不含 dispatch 标签", structured_output=structured)
-    supervisor.ask_run = AsyncMock(side_effect=[AgentRunResult("ignored", structured), AgentRunResult("final", {"mode": "respond", "user_message": "综合完成"})])
+    supervisor.ask_run = AsyncMock(
+        side_effect=[
+            AgentRunResult("ignored", structured),
+            AgentRunResult("final", {"mode": "respond", "user_message": "综合完成"}),
+        ]
+    )
     team._supervisor = supervisor
     team._worker_pool = _mock_worker_pool({"frontend": "前端完成", "backend": "后端完成"})
 
@@ -337,26 +363,26 @@ async def test_structured_supervisor_response_returns_direct_reply(team: AgentTe
 @pytest.mark.asyncio
 async def test_control_command_workers_returns_status(team: AgentTeam) -> None:
     supervisor = MagicMock(spec=CCBotAgent)
-    supervisor.ask_run = AsyncMock(return_value=AgentRunResult('should not run'))
+    supervisor.ask_run = AsyncMock(return_value=AgentRunResult("should not run"))
     supervisor.last_chat_id = None
     team._supervisor = supervisor
 
     pool = _mock_worker_pool()
-    pool.format_status = MagicMock(return_value='[系统信息] 当前活跃 Workers:\n- fe')
+    pool.format_status = MagicMock(return_value="[系统信息] 当前活跃 Workers:\n- fe")
     team._worker_pool = pool
 
-    reply = await team.ask('chat1', '/workers')
+    reply = await team.ask("chat1", "/workers")
 
-    assert '当前活跃 Workers' in reply
+    assert "当前活跃 Workers" in reply
     supervisor.ask_run.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_control_command_help_returns_summary(team: AgentTeam) -> None:
-    reply = await team.ask('chat1', '/help')
+    reply = await team.ask("chat1", "/help")
 
-    assert '/new' in reply
-    assert '/schedule list' in reply
+    assert "/new" in reply
+    assert "/schedule list" in reply
 
 
 @pytest.mark.asyncio
@@ -367,10 +393,10 @@ async def test_control_command_new_resets_supervisor(team: AgentTeam) -> None:
     supervisor.last_chat_id = None
     team._supervisor = supervisor
 
-    reply = await team.ask('chat1', '/new')
+    reply = await team.ask("chat1", "/new")
 
-    assert reply == '已开始新的 Supervisor 会话。'
-    supervisor.reset_conversation.assert_awaited_once_with('chat1')
+    assert reply == "已开始新的 Supervisor 会话。"
+    supervisor.reset_conversation.assert_awaited_once_with("chat1")
     supervisor.ask_run.assert_not_called()
 
 
@@ -382,10 +408,10 @@ async def test_control_command_stop_interrupts_supervisor(team: AgentTeam) -> No
     supervisor.last_chat_id = None
     team._supervisor = supervisor
 
-    reply = await team.ask('chat1', '/stop')
+    reply = await team.ask("chat1", "/stop")
 
-    assert reply == '已中断当前 Supervisor 任务。'
-    supervisor.interrupt.assert_awaited_once_with('chat1')
+    assert reply == "已中断当前 Supervisor 任务。"
+    supervisor.interrupt.assert_awaited_once_with("chat1")
     supervisor.ask_run.assert_not_called()
 
 
@@ -397,9 +423,9 @@ async def test_control_command_stop_handles_idle_supervisor(team: AgentTeam) -> 
     supervisor.last_chat_id = None
     team._supervisor = supervisor
 
-    reply = await team.ask('chat1', '/stop')
+    reply = await team.ask("chat1", "/stop")
 
-    assert reply == '当前没有可中断的 Supervisor 任务。'
+    assert reply == "当前没有可中断的 Supervisor 任务。"
 
 
 @pytest.mark.asyncio
@@ -425,16 +451,16 @@ async def test_async_dispatch_emits_final_synthesis(team: AgentTeam) -> None:
     async def on_worker_result(name: str, result: str) -> None:
         worker_results.append((name, result))
 
-    reply = await team.ask('chat1', '同时开发前后端登录', on_worker_result=on_worker_result)
-    assert reply == '我会并行处理。'
+    reply = await team.ask("chat1", "同时开发前后端登录", on_worker_result=on_worker_result)
+    assert reply == "我会并行处理。"
 
     for _ in range(20):
-        if worker_results and worker_results[-1][0] == '🤖 综合':
+        if worker_results and worker_results[-1][0] == "🤖 综合":
             break
         await asyncio.sleep(0)
 
-    assert worker_results[0] == ('frontend', '前端完成')
-    assert worker_results[-1] == ('🤖 综合', '综合完成')
+    assert worker_results[0] == ("frontend", "前端完成")
+    assert worker_results[-1] == ("🤖 综合", "综合完成")
     assert supervisor.ask_run.await_count == 2
 
 
@@ -445,10 +471,10 @@ async def test_control_command_worker_kill(team: AgentTeam) -> None:
     pool.kill = AsyncMock()
     team._worker_pool = pool
 
-    reply = await team.ask('chat1', '/worker kill fe')
+    reply = await team.ask("chat1", "/worker kill fe")
 
-    assert reply == '已销毁 Worker: fe'
-    pool.kill.assert_awaited_once_with('fe')
+    assert reply == "已销毁 Worker: fe"
+    pool.kill.assert_awaited_once_with("fe")
 
 
 @pytest.mark.asyncio
@@ -458,24 +484,27 @@ async def test_control_command_worker_stop(team: AgentTeam) -> None:
     pool.interrupt = AsyncMock(return_value=True)
     team._worker_pool = pool
 
-    reply = await team.ask('chat1', '/worker stop fe')
+    reply = await team.ask("chat1", "/worker stop fe")
 
-    assert reply == '已中断 Worker: fe'
-    pool.interrupt.assert_awaited_once_with('fe')
+    assert reply == "已中断 Worker: fe"
+    pool.interrupt.assert_awaited_once_with("fe")
 
 
 @pytest.mark.asyncio
 async def test_invalid_structured_output_returns_friendly_error(team: AgentTeam) -> None:
-    team._supervisor = _mock_agent("", {
-        "mode": "schedule_create",
-        "user_message": "",
-        "schedule": {
-            "name": "daily",
-            "cron_expr": "bad cron",
-            "timezone": "Asia/Shanghai",
-            "prompt": "执行任务",
+    team._supervisor = _mock_agent(
+        "",
+        {
+            "mode": "schedule_create",
+            "user_message": "",
+            "schedule": {
+                "name": "daily",
+                "cron_expr": "bad cron",
+                "timezone": "Asia/Shanghai",
+                "prompt": "执行任务",
+            },
         },
-    })
+    )
 
     reply = await team.ask("chat1", "创建一个坏掉的定时任务")
 

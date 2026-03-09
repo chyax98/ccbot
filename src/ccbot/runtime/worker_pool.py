@@ -64,9 +64,7 @@ class WorkerPool:
         if self._running:
             return
         self._running = True
-        self._cleanup_task = asyncio.create_task(
-            self._cleanup_loop(), name="worker-pool-cleanup"
-        )
+        self._cleanup_task = asyncio.create_task(self._cleanup_loop(), name="worker-pool-cleanup")
         logger.info("WorkerPool 已启动，idle_timeout={}s", self._idle_timeout)
 
     async def stop(self) -> None:

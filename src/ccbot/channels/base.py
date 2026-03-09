@@ -45,7 +45,9 @@ class IncomingMessage:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-ContextMessageHandler = Callable[[IncomingMessage, ProgressSender, ResultSender | None], Awaitable[str]]
+ContextMessageHandler = Callable[
+    [IncomingMessage, ProgressSender, ResultSender | None], Awaitable[str]
+]
 
 
 class Channel(ABC):
@@ -143,7 +145,9 @@ class Channel(ABC):
         try:
             if self._handler_accepts_result_sender:
                 message_handler = cast(MessageHandler, self._on_message_handler)
-                return await message_handler(content, reply_to, sender_id, progress_cb, result_sender)
+                return await message_handler(
+                    content, reply_to, sender_id, progress_cb, result_sender
+                )
             legacy_handler = cast(LegacyMessageHandler, self._on_message_handler)
             return await legacy_handler(content, reply_to, sender_id, progress_cb)
         except Exception as e:

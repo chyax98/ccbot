@@ -155,8 +155,9 @@ class TestAgentPool:
         dummy_client = MagicMock()
         dummy_client.connect = AsyncMock()
 
-        with patch("claude_agent_sdk.ClaudeAgentOptions", DummyOptions), patch(
-            "claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client
+        with (
+            patch("claude_agent_sdk.ClaudeAgentOptions", DummyOptions),
+            patch("claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client),
         ):
             await pool._create_client("chat_123")
 
@@ -187,15 +188,16 @@ class TestAgentPool:
         dummy_client = MagicMock()
         dummy_client.connect = AsyncMock()
 
-        with patch("claude_agent_sdk.ClaudeAgentOptions", DummyOptions), patch(
-            "claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client
+        with (
+            patch("claude_agent_sdk.ClaudeAgentOptions", DummyOptions),
+            patch("claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client),
         ):
             await pool._create_client("chat_123")
 
         assert options_seen["setting_sources"] == ["project"]
         assert options_seen["disallowed_tools"] == ["Agent", "SendMessage"]
         assert callable(options_seen["stderr"])
-        assert options_seen["settings"] == "{\"env\": {\"FOO\": \"BAR\"}}"
+        assert options_seen["settings"] == '{"env": {"FOO": "BAR"}}'
 
     @pytest.mark.asyncio
     async def test_stop_ignores_disconnect_base_exception(self, mock_config, mock_workspace):
