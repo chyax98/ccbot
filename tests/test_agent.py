@@ -367,6 +367,32 @@ async def test_ask_process_error_includes_recent_stderr(agent: CCBotAgent) -> No
 
 
 @pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_ask_clears_stale_session_id_on_final_failure(ws: WorkspaceManager) -> None:
+    """所有重试耗尽后，stale runtime_session_id 应被清除，避免下次请求永久失败。"""
+    from ccbot.memory import MemoryStore
+    from ccbot.runtime.profiles import RuntimeRole
+
+    store = MemoryStore(ws.path)
+    store.set_runtime_session("chat1", "stale-session-abc")
+
+    cfg = AgentConfig()
+    agent = CCBotAgent(cfg, ws, role=RuntimeRole.SUPERVISOR, memory_store=store)
+
+    broken_client = MagicMock()
+    broken_client.connect = AsyncMock()
+    broken_client.query = AsyncMock(side_effect=RuntimeError("unknown error"))
+    broken_client.disconnect = AsyncMock()
+
+    with patch("claude_agent_sdk.ClaudeSDKClient", return_value=broken_client):
+        result = await agent.ask("chat1", "Hello")
+
+    # session_id 应被清除
+    assert store.load("chat1").runtime_session_id == ""
+    assert "错误" in result or "error" in result.lower()
+
+
+@pytest.mark.asyncio
 async def test_ask_retries_once_after_process_exit(agent: CCBotAgent) -> None:
     from claude_agent_sdk import AssistantMessage, TextBlock
     from claude_agent_sdk._errors import ProcessError
