@@ -28,6 +28,15 @@ if TYPE_CHECKING:
 _CLEANUP_CHECK_INTERVAL = 60
 
 
+def _sanitize_sdk_host_env() -> None:
+    """Remove host-side env vars that can break nested Claude Code startup."""
+    import os
+
+    for key in ("CLAUDECODE",):
+        if key in os.environ:
+            del os.environ[key]
+
+
 class AgentPool:
     """管理 ClaudeSDKClient 实例的池化组件。"""
 
@@ -133,6 +142,7 @@ class AgentPool:
 
     async def _create_client(self, chat_id: str) -> ClaudeSDKClient:
         """创建新的 ClaudeSDKClient。"""
+        _sanitize_sdk_host_env()
         configure_langsmith_once(self._config)
 
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
@@ -181,8 +191,11 @@ class AgentPool:
         kwargs["stderr"] = stderr_capture.callback
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
-        await client.connect()
         self._stderr_captures[chat_id] = stderr_capture
+        try:
+            await client.connect()
+        except Exception:
+            raise
         return client
 
     async def _cleanup_loop(self) -> None:

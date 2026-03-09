@@ -20,6 +20,7 @@ from loguru import logger
 from ccbot.config import AgentConfig
 from ccbot.models import WorkerTask
 from ccbot.observability import configure_langsmith_once
+from ccbot.runtime.pool import _sanitize_sdk_host_env
 from ccbot.runtime.profiles import RuntimeRole, build_sdk_options
 from ccbot.runtime.sdk_utils import build_stderr_capture, is_retryable_sdk_error, query_and_collect
 
@@ -246,12 +247,7 @@ class WorkerPool:
 
     async def _create_client(self, task: WorkerTask) -> ClaudeSDKClient:
         """创建 ClaudeSDKClient。"""
-        # 清除 CLAUDECODE 环境变量，避免 CLI 的嵌套会话检测阻止启动
-        import os
-
-        if "CLAUDECODE" in os.environ:
-            del os.environ["CLAUDECODE"]
-
+        _sanitize_sdk_host_env()
         configure_langsmith_once(self._base_config)
 
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
@@ -271,8 +267,11 @@ class WorkerPool:
         kwargs["stderr"] = stderr_capture.callback
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
-        await client.connect()
         self._stderr_captures[task.name] = stderr_capture
+        try:
+            await client.connect()
+        except Exception:
+            raise
         return client
 
     async def _cleanup_loop(self) -> None:

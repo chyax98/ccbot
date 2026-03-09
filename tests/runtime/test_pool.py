@@ -211,3 +211,47 @@ class TestAgentPool:
             await pool.stop()
 
         assert len(pool._clients) == 0
+
+    @pytest.mark.asyncio
+    async def test_create_client_registers_stderr_capture_before_connect(
+        self, mock_config, mock_workspace
+    ):
+        pool = AgentPool(mock_config, mock_workspace, idle_timeout=60)
+
+        class DummyOptions:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        dummy_client = MagicMock()
+        dummy_client.connect = AsyncMock(side_effect=RuntimeError("connect failed"))
+
+        with (
+            patch("claude_agent_sdk.ClaudeAgentOptions", DummyOptions),
+            patch("claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client),
+            pytest.raises(RuntimeError, match="connect failed"),
+        ):
+            await pool._create_client("chat_123")
+
+        assert "chat_123" in pool._stderr_captures
+
+    @pytest.mark.asyncio
+    async def test_create_client_clears_claudecode_env(self, mock_config, mock_workspace):
+        pool = AgentPool(mock_config, mock_workspace, idle_timeout=60)
+
+        class DummyOptions:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        dummy_client = MagicMock()
+        dummy_client.connect = AsyncMock()
+
+        with (
+            patch.dict("os.environ", {"CLAUDECODE": "1"}, clear=False),
+            patch("claude_agent_sdk.ClaudeAgentOptions", DummyOptions),
+            patch("claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client),
+        ):
+            await pool._create_client("chat_123")
+
+        import os
+
+        assert "CLAUDECODE" not in os.environ
