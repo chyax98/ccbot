@@ -61,6 +61,7 @@ class AgentConfig(BaseModel):
 
     # 多 Agent 编排配置
     max_workers: int = Field(default=4, ge=1, le=16)  # 最大并行 worker 数
+    max_pooled_workers: int = Field(default=8, ge=1, le=64)  # Worker 池中最多保留的实例数
 
 
 class FeishuConfig(BaseModel):

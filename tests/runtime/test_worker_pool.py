@@ -182,6 +182,36 @@ class TestWorkerPoolLifecycle:
         assert pool.has_worker("fe")
 
     @pytest.mark.asyncio
+    async def test_evicts_oldest_idle_worker_when_pool_limit_reached(self) -> None:
+        config = AgentConfig(model="sonnet", max_pooled_workers=2)
+        pool = WorkerPool(config, idle_timeout=3600)
+        m1, m2, m3 = _mock_client(), _mock_client(), _mock_client()
+        with patch.object(pool, "_create_client", side_effect=[m1, m2, m3]):
+            await pool.get_or_create(_make_task("w1", "/w1", "t1"))
+            await pool.get_or_create(_make_task("w2", "/w2", "t2"))
+            pool._info["w1"].last_used = time.time() - 100
+            pool._info["w2"].last_used = time.time() - 10
+            await pool.get_or_create(_make_task("w3", "/w3", "t3"))
+
+        assert not pool.has_worker("w1")
+        assert pool.has_worker("w2")
+        assert pool.has_worker("w3")
+        m1.disconnect.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_raises_when_pool_limit_reached_without_idle_worker(self) -> None:
+        config = AgentConfig(model="sonnet", max_pooled_workers=2)
+        pool = WorkerPool(config, idle_timeout=3600)
+        m1, m2, m3 = _mock_client(), _mock_client(), _mock_client()
+        with patch.object(pool, "_create_client", side_effect=[m1, m2, m3]):
+            await pool.get_or_create(_make_task("w1", "/w1", "t1"))
+            await pool.get_or_create(_make_task("w2", "/w2", "t2"))
+            pool._info["w1"].status = WorkerStatus.RUNNING
+            pool._info["w2"].status = WorkerStatus.RUNNING
+            with pytest.raises(RuntimeError, match="Worker 池已满"):
+                await pool.get_or_create(_make_task("w3", "/w3", "t3"))
+
+    @pytest.mark.asyncio
     async def test_send_error_resets_status(self, pool: WorkerPool) -> None:
         mock = _mock_client()
         with (

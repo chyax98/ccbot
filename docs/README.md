@@ -31,24 +31,18 @@
 
 ## 2. 旧文档处理策略
 
-为避免历史链接失效，旧文档暂不直接删除，而是保留为“跳转页 / 兼容入口”：
+当前只保留少量兼容入口页：
 
 - `docs/ARCHITECTURE.md`
-- `docs/ARCHITECTURE_REVIEW.md`
-- `docs/CHANNEL_ARCHITECTURE.md`
-- `docs/CLAUDE_AGENT_SDK_CAPABILITY_MAP.md`
-- `docs/CLAUDE_RUNTIME_PROFILES.md`
-- `docs/LANGSMITH_INTEGRATION.md`
-- `docs/MEMORY_ARCHITECTURE.md`
-- `docs/PRODUCT_REQUIREMENTS_MODEL.md`
 - `docs/RUNTIME_OPERATIONS.md`
 - `docs/TROUBLESHOOTING.md`
 
-它们现在更像：
+作用：
 
-- 历史专题入口
-- 兼容旧引用
-- 指向模块化主文档的导航页
+- 避免最常见的旧链接失效
+- 给仍在使用旧入口的人一个平滑跳转层
+
+其余历史专题内容已被合并进 4 个模块主文档，不再在 `docs/` 下继续平行维护。
 
 ## 3. 当前稳定结论
 

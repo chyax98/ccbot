@@ -20,6 +20,7 @@ class TestAgentConfig:
         assert config.max_turns == 10
         assert config.idle_timeout == 28800
         assert config.max_workers == 4
+        assert config.max_pooled_workers == 8
         assert config.allowed_tools == []
         assert config.mcp_servers == {}
         assert config.system_prompt == ""
@@ -38,11 +39,13 @@ class TestAgentConfig:
             max_turns=50,
             idle_timeout=3600,
             max_workers=8,
+            max_pooled_workers=12,
         )
         assert config.model == "claude-opus-4-6"
         assert config.max_turns == 50
         assert config.idle_timeout == 3600
         assert config.max_workers == 8
+        assert config.max_pooled_workers == 12
 
     def test_max_workers_validation(self) -> None:
         """max_workers 必须在 [1, 16] 范围内。"""
@@ -53,6 +56,16 @@ class TestAgentConfig:
             AgentConfig(max_workers=0)
         with pytest.raises(ValueError):
             AgentConfig(max_workers=17)
+
+    def test_max_pooled_workers_validation(self) -> None:
+        """max_pooled_workers 必须在 [1, 64] 范围内。"""
+        AgentConfig(max_pooled_workers=1)
+        AgentConfig(max_pooled_workers=64)
+
+        with pytest.raises(ValueError):
+            AgentConfig(max_pooled_workers=0)
+        with pytest.raises(ValueError):
+            AgentConfig(max_pooled_workers=65)
 
 
 class TestFeishuConfig:

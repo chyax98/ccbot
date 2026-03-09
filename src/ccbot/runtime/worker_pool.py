@@ -59,6 +59,7 @@ class WorkerPool:
         self._info: dict[str, WorkerInfo] = {}
         self._cleanup_task: asyncio.Task[None] | None = None
         self._running = False
+        self._max_pooled_workers = base_config.max_pooled_workers
 
     async def start(self) -> None:
         if self._running:
@@ -84,6 +85,8 @@ class WorkerPool:
         if task.name in self._clients:
             logger.info("复用已有 Worker: name={}", task.name)
             return
+
+        await self._evict_if_needed(task.name)
 
         client = await self._create_client(task)
         self._clients[task.name] = client
@@ -151,6 +154,31 @@ class WorkerPool:
                 logger.info("销毁 Worker: name={}", name)
             except BaseException as e:
                 logger.warning("销毁 Worker 出错: name={} error={}", name, e)
+
+    async def _evict_if_needed(self, incoming_name: str) -> None:
+        if incoming_name in self._clients or self._max_pooled_workers <= 0:
+            return
+        if len(self._clients) < self._max_pooled_workers:
+            return
+
+        idle_candidates = [
+            info
+            for info in self._info.values()
+            if info.status == WorkerStatus.IDLE and info.name != incoming_name
+        ]
+        if not idle_candidates:
+            raise RuntimeError(
+                "Worker 池已满，且当前没有可回收的空闲 Worker；请稍后重试或复用已有 Worker name。"
+            )
+
+        victim = min(idle_candidates, key=lambda info: info.last_used)
+        logger.info(
+            "Worker 池达到上限={}，回收最久未使用的空闲 Worker: name={} (incoming={})",
+            self._max_pooled_workers,
+            victim.name,
+            incoming_name,
+        )
+        await self._kill(victim.name)
 
     def list_workers(self) -> list[WorkerInfo]:
         return list(self._info.values())

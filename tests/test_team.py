@@ -55,6 +55,7 @@ def _mock_worker_pool(worker_replies: dict[str, str] | None = None) -> WorkerPoo
         pool.send = AsyncMock(return_value="worker output")
 
     pool.kill = AsyncMock()
+    pool.interrupt = AsyncMock(return_value=False)
     pool.list_workers = MagicMock(return_value=[])
     pool.has_worker = MagicMock(return_value=False)
     return pool
@@ -410,7 +411,7 @@ async def test_control_command_stop_interrupts_supervisor(team: AgentTeam) -> No
 
     reply = await team.ask("chat1", "/stop")
 
-    assert reply == "已中断当前 Supervisor 任务。"
+    assert reply == "已中断当前任务（Supervisor）。"
     supervisor.interrupt.assert_awaited_once_with("chat1")
     supervisor.ask_run.assert_not_called()
 
@@ -425,10 +426,56 @@ async def test_control_command_stop_handles_idle_supervisor(team: AgentTeam) -> 
 
     reply = await team.ask("chat1", "/stop")
 
-    assert reply == "当前没有可中断的 Supervisor 任务。"
+    assert reply == "当前没有可中断的任务。"
 
 
 @pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_stop_cancels_background_dispatch_and_interrupts_workers(team: AgentTeam) -> None:
+    structured = {
+        "mode": "dispatch",
+        "user_message": "我会并行处理。",
+        "tasks": [
+            {"name": "frontend", "cwd": "/fe", "task": "写登录页"},
+            {"name": "backend", "cwd": "/be", "task": "写登录 API"},
+        ],
+    }
+    supervisor = MagicMock(spec=CCBotAgent)
+    supervisor.ask_run = AsyncMock(return_value=AgentRunResult("ignored", structured))
+    supervisor.interrupt = AsyncMock(return_value=False)
+    supervisor.last_chat_id = None
+    team._supervisor = supervisor
+
+    pool = _mock_worker_pool()
+    pool.interrupt = AsyncMock(return_value=True)
+    team._worker_pool = pool
+
+    started = asyncio.Event()
+    released = asyncio.Event()
+
+    async def fake_run_workers_async(chat_id, prompt, dispatch, on_progress, on_worker_result):
+        started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            released.set()
+
+    team._run_workers_async = fake_run_workers_async  # type: ignore[method-assign]
+
+    async def on_worker_result(name: str, result: str) -> None:
+        return None
+
+    reply = await team.ask("chat1", "task", on_worker_result=on_worker_result)
+    assert reply == "我会并行处理。"
+
+    await started.wait()
+    stop_reply = await team.ask("chat1", "/stop")
+
+    assert stop_reply == "已中断当前任务（1 个后台派发，2 个 Worker）。"
+    assert pool.interrupt.await_count == 2
+    await released.wait()
+
+
 async def test_async_dispatch_emits_final_synthesis(team: AgentTeam) -> None:
     structured = {
         "mode": "dispatch",

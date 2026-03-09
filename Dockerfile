@@ -18,7 +18,7 @@ RUN useradd -m -s /bin/bash ccbot \
 WORKDIR /app
 
 # ── 依赖安装（利用 Docker 缓存）──
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock ./
 RUN uv sync --no-dev --no-install-project
 
 # ── 复制项目代码 ──

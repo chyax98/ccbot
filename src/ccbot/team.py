@@ -63,6 +63,8 @@ class AgentTeam:
         self._worker_pool = WorkerPool(config)
         self._scheduler: SchedulerService | None = None
         self._background_tasks: set[asyncio.Task[None]] = set()
+        self._background_tasks_by_chat: dict[str, set[asyncio.Task[None]]] = {}
+        self._background_task_workers: dict[asyncio.Task[None], frozenset[str]] = {}
 
     def set_scheduler(self, scheduler: SchedulerService) -> None:
         self._scheduler = scheduler
@@ -89,17 +91,50 @@ class AgentTeam:
     def worker_pool(self) -> WorkerPool:
         return self._worker_pool
 
-    def _track_background_task(self, task: asyncio.Task[None]) -> None:
+    def _track_background_task(
+        self,
+        chat_id: str,
+        worker_names: list[str],
+        task: asyncio.Task[None],
+    ) -> None:
         self._background_tasks.add(task)
+        self._background_tasks_by_chat.setdefault(chat_id, set()).add(task)
+        self._background_task_workers[task] = frozenset(worker_names)
 
         def _cleanup(done_task: asyncio.Task[None]) -> None:
             self._background_tasks.discard(done_task)
+            chat_tasks = self._background_tasks_by_chat.get(chat_id)
+            if chat_tasks is not None:
+                chat_tasks.discard(done_task)
+                if not chat_tasks:
+                    self._background_tasks_by_chat.pop(chat_id, None)
+            self._background_task_workers.pop(done_task, None)
             with contextlib.suppress(asyncio.CancelledError):
                 exc = done_task.exception()
                 if exc is not None:
                     logger.error("后台 worker 任务异常退出: {}", exc)
 
         task.add_done_callback(_cleanup)
+
+    async def _cancel_active_dispatch(self, chat_id: str) -> tuple[int, int]:
+        tasks = list(self._background_tasks_by_chat.get(chat_id, set()))
+        worker_names: set[str] = set()
+        for task in tasks:
+            worker_names.update(self._background_task_workers.get(task, frozenset()))
+
+        for task in tasks:
+            task.cancel()
+
+        interrupted_workers = 0
+        for name in worker_names:
+            interrupted = await self._worker_pool.interrupt(name)
+            if interrupted:
+                interrupted_workers += 1
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        return len(tasks), interrupted_workers
 
     async def ask(
         self,
@@ -172,7 +207,7 @@ class AgentTeam:
                 self._run_workers_async(chat_id, prompt, dispatch, on_progress, on_worker_result),
                 name=f"worker-dispatch:{chat_id}",
             )
-            self._track_background_task(task)
+            self._track_background_task(chat_id, [task.name for task in dispatch.tasks], task)
             return pre_text or f"已派发 {len(dispatch.tasks)} 个任务，结果将陆续返回。"
 
         result = await self._run_workers(chat_id, dispatch, on_progress)
@@ -241,8 +276,6 @@ class AgentTeam:
         semaphore = asyncio.Semaphore(self._config.max_workers)
 
         async def run_one(task_def: WorkerTask) -> WorkerResult:
-            await self._worker_pool.get_or_create(task_def)
-
             async def worker_progress(msg: str) -> None:
                 tagged = f"[{task_def.name}] {msg}"
                 logger.info("[{}] {}", chat_id, tagged)
@@ -259,6 +292,7 @@ class AgentTeam:
 
             async with semaphore:
                 try:
+                    await self._worker_pool.get_or_create(task_def)
                     result_text = await self._worker_pool.send(
                         task_def.name,
                         task_def.task,
@@ -337,14 +371,25 @@ class AgentTeam:
             return _TEAM_HELP_TEXT
 
         if lowered == "/new":
+            _, interrupted_workers = await self._cancel_active_dispatch(chat_id)
             await self._supervisor.reset_conversation(chat_id)
+            if interrupted_workers:
+                return f"已开始新的 Supervisor 会话，并停止 {interrupted_workers} 个 Worker。"
             return "已开始新的 Supervisor 会话。"
 
         if lowered == "/stop":
-            interrupted = await self._supervisor.interrupt(chat_id)
-            if interrupted:
-                return "已中断当前 Supervisor 任务。"
-            return "当前没有可中断的 Supervisor 任务。"
+            supervisor_interrupted = await self._supervisor.interrupt(chat_id)
+            canceled_dispatches, interrupted_workers = await self._cancel_active_dispatch(chat_id)
+            if supervisor_interrupted or canceled_dispatches or interrupted_workers:
+                parts: list[str] = []
+                if supervisor_interrupted:
+                    parts.append("Supervisor")
+                if canceled_dispatches:
+                    parts.append(f"{canceled_dispatches} 个后台派发")
+                if interrupted_workers:
+                    parts.append(f"{interrupted_workers} 个 Worker")
+                return f"已中断当前任务（{'，'.join(parts)}）。"
+            return "当前没有可中断的任务。"
 
         if lowered == "/workers":
             status = self._worker_pool.format_status()
@@ -375,7 +420,10 @@ class AgentTeam:
             return memory_prompt or "当前没有持久化记忆。"
 
         if lowered.startswith("/memory clear"):
+            _, interrupted_workers = await self._cancel_active_dispatch(chat_id)
             await self._supervisor.reset_conversation(chat_id)
+            if interrupted_workers:
+                return f"已清空当前会话的本地记忆与 runtime session，并停止 {interrupted_workers} 个 Worker。"
             return "已清空当前会话的本地记忆与 runtime session。"
 
         if lowered == "/schedule list":
