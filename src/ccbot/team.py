@@ -128,7 +128,7 @@ class AgentTeam:
 
         interrupted_workers = 0
         for name in worker_names:
-            interrupted = await self._worker_pool.interrupt(name)
+            interrupted = await self._worker_pool.interrupt(name, owner_id=chat_id)
             if interrupted:
                 interrupted_workers += 1
 
@@ -154,7 +154,7 @@ class AgentTeam:
         now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
         context_parts = [f"Current time: {now}"]
 
-        worker_status = self._worker_pool.format_status()
+        worker_status = self._worker_pool.format_status(owner_id=chat_id)
         if worker_status:
             context_parts.append(worker_status)
 
@@ -216,7 +216,7 @@ class AgentTeam:
 
             # 预加载 Worker：确保 Worker 创建完成后再返回，防止并发竞争
             try:
-                await self._worker_pool.preload_workers(dispatch.tasks)
+                await self._worker_pool.preload_workers(dispatch.tasks, owner_id=chat_id)
             except Exception as exc:
                 logger.error("预加载 Worker 失败: {}", exc)
                 return f"无法启动 Worker: {exc}"
@@ -310,10 +310,11 @@ class AgentTeam:
 
             async with semaphore:
                 try:
-                    await self._worker_pool.get_or_create(task_def)
+                    await self._worker_pool.get_or_create(task_def, owner_id=chat_id)
                     result_text = await self._worker_pool.send(
                         task_def.name,
                         task_def.task,
+                        owner_id=chat_id,
                         on_progress=worker_progress,
                     )
                     logger.info(
@@ -410,25 +411,25 @@ class AgentTeam:
             return "当前没有可中断的任务。"
 
         if lowered == "/workers":
-            status = self._worker_pool.format_status()
+            status = self._worker_pool.format_status(owner_id=chat_id)
             return status or "当前没有活跃 Worker。"
 
         if lowered.startswith("/worker kill "):
-            name = command.split(maxsplit=2)[2].strip()
-            if not name:
+            name = _extract_command_argument(command, "/worker kill ")
+            if name is None:
                 return "用法: /worker kill <name>"
-            if not self._worker_pool.has_worker(name):
+            if not self._worker_pool.has_worker(name, owner_id=chat_id):
                 return f"Worker '{name}' 不存在。"
-            await self._worker_pool.kill(name)
+            await self._worker_pool.kill(name, owner_id=chat_id)
             return f"已销毁 Worker: {name}"
 
         if lowered.startswith("/worker stop "):
-            name = command.split(maxsplit=2)[2].strip()
-            if not name:
+            name = _extract_command_argument(command, "/worker stop ")
+            if name is None:
                 return "用法: /worker stop <name>"
-            if not self._worker_pool.has_worker(name):
+            if not self._worker_pool.has_worker(name, owner_id=chat_id):
                 return f"Worker '{name}' 不存在。"
-            interrupted = await self._worker_pool.interrupt(name)
+            interrupted = await self._worker_pool.interrupt(name, owner_id=chat_id)
             if interrupted:
                 return f"已中断 Worker: {name}"
             return f"Worker '{name}' 当前无法中断。"
@@ -453,28 +454,36 @@ class AgentTeam:
         if lowered.startswith("/schedule delete "):
             if self._scheduler is None:
                 return "当前未启用 Scheduler。"
-            job_id = command.split(maxsplit=2)[2].strip()
+            job_id = _extract_command_argument(command, "/schedule delete ")
+            if job_id is None:
+                return "用法: /schedule delete <id>"
             deleted = self._scheduler.delete_job(job_id)
             return f"已删除定时任务: {job_id}" if deleted else f"定时任务不存在: {job_id}"
 
         if lowered.startswith("/schedule pause "):
             if self._scheduler is None:
                 return "当前未启用 Scheduler。"
-            job_id = command.split(maxsplit=2)[2].strip()
+            job_id = _extract_command_argument(command, "/schedule pause ")
+            if job_id is None:
+                return "用法: /schedule pause <id>"
             paused = self._scheduler.pause_job(job_id)
             return f"已暂停定时任务: {job_id}" if paused else f"定时任务不存在: {job_id}"
 
         if lowered.startswith("/schedule resume "):
             if self._scheduler is None:
                 return "当前未启用 Scheduler。"
-            job_id = command.split(maxsplit=2)[2].strip()
+            job_id = _extract_command_argument(command, "/schedule resume ")
+            if job_id is None:
+                return "用法: /schedule resume <id>"
             resumed = self._scheduler.resume_job(job_id)
             return f"已恢复定时任务: {job_id}" if resumed else f"定时任务不存在: {job_id}"
 
         if lowered.startswith("/schedule run "):
             if self._scheduler is None:
                 return "当前未启用 Scheduler。"
-            job_id = command.split(maxsplit=2)[2].strip()
+            job_id = _extract_command_argument(command, "/schedule run ")
+            if job_id is None:
+                return "用法: /schedule run <id>"
             ran = await self._scheduler.run_job_now(job_id)
             return f"已触发定时任务: {job_id}" if ran else f"定时任务不存在: {job_id}"
 
@@ -484,3 +493,10 @@ class AgentTeam:
 def _extract_pre_dispatch_text(text: str) -> str:
     match = re.search(r"<dispatch>", text, re.IGNORECASE)
     return text[: match.start()].strip() if match else text.strip()
+
+
+def _extract_command_argument(command: str, prefix: str) -> str | None:
+    if not command.lower().startswith(prefix.lower()):
+        return None
+    value = command[len(prefix) :].strip()
+    return value or None

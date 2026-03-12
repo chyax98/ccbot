@@ -290,6 +290,43 @@ class TestWorkerPoolLifecycle:
         assert not pool.has_worker("fe")
 
     @pytest.mark.asyncio
+    async def test_kill_disconnects_on_same_actor_task(self, pool: WorkerPool) -> None:
+        task_ids: dict[str, int] = {}
+
+        class DummyClient:
+            async def interrupt(self) -> None:
+                return None
+
+            async def disconnect(self) -> None:
+                task_ids["disconnect"] = id(asyncio.current_task())
+
+        async def fake_create_client(task: WorkerTask, *, worker_key: str | None = None):
+            _ = task
+            _ = worker_key
+            task_ids["create"] = id(asyncio.current_task())
+            return DummyClient()
+
+        with patch.object(pool, "_create_client", side_effect=fake_create_client):
+            await pool.get_or_create(_make_task())
+            await pool.kill("fe")
+
+        assert task_ids["disconnect"] == task_ids["create"]
+
+    @pytest.mark.asyncio
+    async def test_same_worker_name_is_isolated_by_owner(self, pool: WorkerPool) -> None:
+        m1, m2 = _mock_client(), _mock_client()
+        with patch.object(pool, "_create_client", side_effect=[m1, m2]) as create:
+            await pool.get_or_create(_make_task("reviewer", "/a", "t1"), owner_id="chat-a")
+            await pool.get_or_create(_make_task("reviewer", "/b", "t2"), owner_id="chat-b")
+
+        assert create.await_count == 2
+        assert pool.has_worker("reviewer", owner_id="chat-a")
+        assert pool.has_worker("reviewer", owner_id="chat-b")
+        assert len(pool.list_workers(owner_id="chat-a")) == 1
+        assert len(pool.list_workers(owner_id="chat-b")) == 1
+        await pool.stop()
+
+    @pytest.mark.asyncio
     async def test_send_retries_once_after_process_exit(self, pool: WorkerPool) -> None:
         from claude_agent_sdk._errors import ProcessError
 

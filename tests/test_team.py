@@ -47,7 +47,13 @@ def _mock_worker_pool(worker_replies: dict[str, str] | None = None) -> WorkerPoo
 
     if worker_replies:
 
-        async def fake_send(name: str, task: str, on_progress=None) -> str:
+        async def fake_send(
+            name: str,
+            task: str,
+            *,
+            owner_id: str = "",
+            on_progress=None,
+        ) -> str:
             return worker_replies.get(name, "default result")
 
         pool.send = AsyncMock(side_effect=fake_send)
@@ -179,7 +185,7 @@ async def test_on_progress_tagged_with_worker_name(team: AgentTeam) -> None:
         progress_msgs.append(msg)
 
     # send 调用 on_progress
-    async def fake_send(name, task, on_progress=None):
+    async def fake_send(name, task, *, owner_id="", on_progress=None):
         if on_progress:
             await on_progress("🔧 Bash")
         return "result"
@@ -378,6 +384,7 @@ async def test_control_command_workers_returns_status(team: AgentTeam) -> None:
     reply = await team.ask("chat1", "/workers")
 
     assert "当前活跃 Workers" in reply
+    pool.format_status.assert_called_once_with(owner_id="chat1")
     supervisor.ask_run.assert_not_called()
 
 
@@ -524,7 +531,8 @@ async def test_control_command_worker_kill(team: AgentTeam) -> None:
     reply = await team.ask("chat1", "/worker kill fe")
 
     assert reply == "已销毁 Worker: fe"
-    pool.kill.assert_awaited_once_with("fe")
+    pool.has_worker.assert_called_once_with("fe", owner_id="chat1")
+    pool.kill.assert_awaited_once_with("fe", owner_id="chat1")
 
 
 @pytest.mark.asyncio
@@ -537,7 +545,8 @@ async def test_control_command_worker_stop(team: AgentTeam) -> None:
     reply = await team.ask("chat1", "/worker stop fe")
 
     assert reply == "已中断 Worker: fe"
-    pool.interrupt.assert_awaited_once_with("fe")
+    pool.has_worker.assert_called_once_with("fe", owner_id="chat1")
+    pool.interrupt.assert_awaited_once_with("fe", owner_id="chat1")
 
 
 @pytest.mark.asyncio

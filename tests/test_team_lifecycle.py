@@ -33,7 +33,8 @@ def _mock_worker_pool(worker_replies: dict[str, str] | None = None) -> WorkerPoo
 
     if worker_replies:
 
-        async def fake_send(name: str, task: str, on_progress=None) -> str:
+        async def fake_send(name: str, task: str, *, owner_id: str = "", on_progress=None) -> str:
+            _ = owner_id
             return worker_replies.get(name, "default result")
 
         pool.send = AsyncMock(side_effect=fake_send)
@@ -128,7 +129,8 @@ class TestWorkerLifecycle:
 
         send_calls = []
 
-        async def fake_send(name, task, on_progress=None):
+        async def fake_send(name, task, *, owner_id="", on_progress=None):
+            _ = owner_id
             send_calls.append(name)
             if name == "fail":
                 raise RuntimeError("boom")
@@ -169,7 +171,8 @@ class TestWorkerConcurrencyLimit:
         max_concurrent = [0]
         current_concurrent = [0]
 
-        async def slow_send(name, task, on_progress=None):
+        async def slow_send(name, task, *, owner_id="", on_progress=None):
+            _ = owner_id
             current_concurrent[0] += 1
             max_concurrent[0] = max(max_concurrent[0], current_concurrent[0])
             await asyncio.sleep(0.05)
