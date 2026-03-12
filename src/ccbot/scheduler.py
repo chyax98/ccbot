@@ -22,6 +22,12 @@ ExecuteCallback = Callable[[ScheduledJob], Awaitable[str]]
 NotifyCallback = Callable[[ScheduledJob, str], Awaitable[None]]
 
 
+class RunJobNowResult:
+    MISSING = "missing"
+    STARTED = "started"
+    ALREADY_RUNNING = "already_running"
+
+
 class SchedulerService:
     """轻量持久化 scheduler。"""
 
@@ -126,12 +132,14 @@ class SchedulerService:
         self._save_jobs()
         return True
 
-    async def run_job_now(self, job_id: str) -> bool:
+    async def run_job_now(self, job_id: str) -> str:
         job = self._jobs.get(job_id)
         if job is None:
-            return False
+            return RunJobNowResult.MISSING
+        if job.job_id in self._active_runs:
+            return RunJobNowResult.ALREADY_RUNNING
         await self._run_job(job)
-        return True
+        return RunJobNowResult.STARTED
 
     def format_status(self, max_shown: int = 5) -> str:
         if not self._jobs:

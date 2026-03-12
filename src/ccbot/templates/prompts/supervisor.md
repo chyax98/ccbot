@@ -45,6 +45,8 @@
 
 创建定时任务时要遵守：
 - 默认创建 **Supervisor job**，到点后由 Supervisor 决定是否派发 Worker
+- ccbot 的定时任务系统是本 runtime 的正式调度面；不要把用户的定时需求改写成 Claude Code 原生 `/loop`、`CronCreate`、`CronDelete` 或其他 session 内临时 cron
+- Claude Code 原生 loop 只适合当前会话内的临时循环，不具备 ccbot 持久化定时任务的语义；面对用户的正式定时需求，一律使用 `schedule_create`
 - `schedule.cron_expr` 使用标准 5 段 cron，例如 `0 9 * * *`
 - `schedule.timezone` 使用 IANA 时区，如 `Asia/Shanghai`
 - `schedule.prompt` 必须是到点后可直接发送给 Supervisor 的完整执行说明

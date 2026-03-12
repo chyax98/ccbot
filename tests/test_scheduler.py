@@ -69,12 +69,51 @@ async def test_scheduler_run_job_now(tmp_path: Path) -> None:
 
     ran = await scheduler.run_job_now(job.job_id)
 
-    assert ran is True
+    assert ran == "started"
     saved = scheduler.get_job(job.job_id)
     assert saved is not None
     assert saved.last_status == "succeeded"
     assert notifications[0].startswith("⏰ 定时任务开始")
     assert notifications[-1].startswith("✅ 定时任务完成")
+
+
+@pytest.mark.asyncio
+async def test_scheduler_run_job_now_rejects_active_job(tmp_path: Path) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def on_execute(job):
+        started.set()
+        await release.wait()
+        return f"result:{job.prompt}"
+
+    async def on_notify(job, content: str) -> None:
+        return None
+
+    scheduler = SchedulerService(tmp_path, on_execute, on_notify, poll_interval_s=1)
+    job = scheduler.create_job(
+        ScheduleSpec(
+            name="daily",
+            cron_expr="0 9 * * *",
+            timezone="Asia/Shanghai",
+            prompt="执行日报",
+            purpose="日报",
+        ),
+        created_by="user-1",
+        channel="feishu",
+        notify_target="chat-1",
+        conversation_id="chat-1",
+    )
+
+    task = asyncio.create_task(scheduler.run_job_now(job.job_id))
+    await started.wait()
+
+    result = await scheduler.run_job_now(job.job_id)
+    assert result == "already_running"
+
+    release.set()
+    first = await task
+    assert first == "started"
 
 
 @pytest.mark.asyncio

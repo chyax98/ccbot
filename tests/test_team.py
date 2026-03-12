@@ -212,7 +212,7 @@ async def test_worker_status_injected_into_supervisor_prompt(team: AgentTeam) ->
     team._supervisor = _mock_agent("直接回答")
     pool = _mock_worker_pool()
     pool.format_status = MagicMock(
-        return_value="[系统信息] 当前活跃 Workers:\n- fe (空闲 30s): cwd=/fe"
+        return_value="[系统信息] 当前活跃 Workers:\n- fe (空闲): cwd=/fe"
     )
     team._worker_pool = pool
 
@@ -226,7 +226,7 @@ async def test_worker_status_injected_into_supervisor_prompt(team: AgentTeam) ->
 
 @pytest.mark.asyncio
 async def test_no_worker_status_when_pool_empty(team: AgentTeam) -> None:
-    """没有活跃 Worker 时不注入 worker 状态，但 runtime_context 始终含当前时间。"""
+    """没有活跃 Worker 时不注入 worker 状态，但 runtime_context 始终含当前日期。"""
     team._supervisor = _mock_agent("直接回答")
     pool = _mock_worker_pool()
     pool.format_status = MagicMock(return_value="")
@@ -236,7 +236,7 @@ async def test_no_worker_status_when_pool_empty(team: AgentTeam) -> None:
 
     actual_prompt = team._supervisor.ask_run.call_args.args[1]
     assert "<runtime_context>" in actual_prompt
-    assert "Current time:" in actual_prompt
+    assert "Current date:" in actual_prompt
     assert "你好" in actual_prompt
     assert "当前活跃 Workers" not in actual_prompt
 
@@ -437,6 +437,18 @@ async def test_control_command_stop_handles_idle_supervisor(team: AgentTeam) -> 
     reply = await team.ask("chat1", "/stop")
 
     assert reply == "当前没有可中断的任务。"
+
+
+@pytest.mark.asyncio
+async def test_control_command_schedule_run_handles_active_job(team: AgentTeam) -> None:
+    scheduler = MagicMock()
+    scheduler.run_job_now = AsyncMock(return_value="already_running")
+    team.set_scheduler(scheduler)
+
+    reply = await team.ask("chat1", "/schedule run job-1")
+
+    assert reply == "定时任务正在执行中: job-1"
+    scheduler.run_job_now.assert_awaited_once_with("job-1")
 
 
 @pytest.mark.asyncio

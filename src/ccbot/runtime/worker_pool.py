@@ -265,11 +265,10 @@ class WorkerPool:
             return ""
         lines = ["[系统信息] 当前活跃 Workers:"]
         for info in workers:
-            elapsed = int(time.time() - info.last_used)
             if info.status == WorkerStatus.RUNNING:
                 status = "执行中"
             else:
-                status = f"空闲 {elapsed}s"
+                status = "空闲"
             label = info.name
             if owner_id is None and info.owner_id:
                 label = f"{info.name} [owner={info.owner_id}]"

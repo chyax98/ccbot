@@ -149,10 +149,9 @@ class AgentTeam:
         if control_reply is not None:
             return control_reply
 
-        # 当前时间始终注入：Supervisor 每轮获得准确的时间参考
-        # 时间不放在 session 创建时的 system prompt，避免长会话中时间过期
-        now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
-        context_parts = [f"Current time: {now}"]
+        # 当前日期始终注入：保留基础时间语义，同时降低分钟级抖动对 KV cache 的影响
+        current_date = datetime.now().strftime("%Y-%m-%d (%A)")
+        context_parts = [f"Current date: {current_date}"]
 
         worker_status = self._worker_pool.format_status(owner_id=chat_id)
         if worker_status:
@@ -484,8 +483,12 @@ class AgentTeam:
             job_id = _extract_command_argument(command, "/schedule run ")
             if job_id is None:
                 return "用法: /schedule run <id>"
-            ran = await self._scheduler.run_job_now(job_id)
-            return f"已触发定时任务: {job_id}" if ran else f"定时任务不存在: {job_id}"
+            result = await self._scheduler.run_job_now(job_id)
+            if result == "started":
+                return f"已触发定时任务: {job_id}"
+            if result == "already_running":
+                return f"定时任务正在执行中: {job_id}"
+            return f"定时任务不存在: {job_id}"
 
         return None
 
