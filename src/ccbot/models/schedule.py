@@ -51,6 +51,7 @@ class ScheduledJob(BaseModel):
     """持久化后的定时任务。"""
 
     job_id: str
+    system_key: str = ""
     name: str
     cron_expr: str
     timezone: str = "Asia/Shanghai"
