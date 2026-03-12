@@ -247,7 +247,7 @@ class TestWorkerPoolLifecycle:
         assert options_seen["system_prompt"]["type"] == "preset"
         assert options_seen["system_prompt"]["preset"] == "claude_code"
         assert "Working directory" in options_seen["system_prompt"]["append"]
-        assert options_seen["setting_sources"] == ["project"]
+        assert options_seen["setting_sources"] == ["user", "project"]
         assert options_seen["disallowed_tools"] == ["Agent", "SendMessage"]
         assert callable(options_seen["stderr"])
         assert options_seen["cwd"] == "/tmp/fe"
@@ -257,7 +257,7 @@ class TestWorkerPoolLifecycle:
     async def test_create_client_keeps_project_settings_when_env_is_injected(
         self, base_config: AgentConfig
     ) -> None:
-        """Worker 注入 env 后仍只加载 project 级 setting sources。"""
+        """Worker 注入 env 后仍同时加载 user + project 级 setting sources。"""
         base_config.env = {"FOO": "BAR"}
         pool = WorkerPool(base_config)
         options_seen = {}
@@ -275,7 +275,7 @@ class TestWorkerPoolLifecycle:
         ):
             await pool._create_client(_make_task())
 
-        assert options_seen["setting_sources"] == ["project"]
+        assert options_seen["setting_sources"] == ["user", "project"]
         assert options_seen["disallowed_tools"] == ["Agent", "SendMessage"]
         assert callable(options_seen["stderr"])
         assert options_seen["settings"] == '{"env": {"FOO": "BAR"}}'

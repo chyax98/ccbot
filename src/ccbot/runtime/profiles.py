@@ -41,16 +41,19 @@ _ROLE_PROFILES: dict[RuntimeRole, RuntimeRoleProfile] = {
     RuntimeRole.SUPERVISOR: RuntimeRoleProfile(
         role=RuntimeRole.SUPERVISOR,
         permission_mode="bypassPermissions",
+        setting_sources=("user", "project"),
         disallowed_tools=("Agent", "SendMessage"),
     ),
     RuntimeRole.WORKER: RuntimeRoleProfile(
         role=RuntimeRole.WORKER,
         permission_mode="bypassPermissions",
+        setting_sources=("user", "project"),
         disallowed_tools=("Agent", "SendMessage"),
     ),
     RuntimeRole.REVIEWER: RuntimeRoleProfile(
         role=RuntimeRole.REVIEWER,
         permission_mode="plan",
+        setting_sources=("user", "project"),
         disallowed_tools=("Agent", "SendMessage"),
     ),
 }
