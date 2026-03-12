@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}ccbot console{% endblock %}</title>
+    <style>
+      :root {
+        --bg: #f5f1e8;
+        --bg-deep: #d8cab6;
+        --panel: rgba(255, 252, 246, 0.92);
+        --panel-strong: #fffaf1;
+        --ink: #172127;
+        --muted: #5f6a70;
+        --line: rgba(23, 33, 39, 0.12);
+        --accent: #0f766e;
+        --accent-2: #b45309;
+        --danger: #b42318;
+        --shadow: 0 20px 40px rgba(46, 35, 24, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Avenir Next", "Helvetica Neue", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(180, 83, 9, 0.14), transparent 28%),
+          radial-gradient(circle at top right, rgba(15, 118, 110, 0.18), transparent 22%),
+          linear-gradient(180deg, var(--bg) 0%, #efe8dc 100%);
+        min-height: 100vh;
+      }
+
+      .shell {
+        width: min(1200px, calc(100vw - 32px));
+        margin: 24px auto 48px;
+      }
+
+      .hero {
+        padding: 28px;
+        border-radius: 28px;
+        background:
+          linear-gradient(140deg, rgba(255, 250, 241, 0.95), rgba(242, 234, 221, 0.92)),
+          var(--panel);
+        border: 1px solid rgba(23, 33, 39, 0.08);
+        box-shadow: var(--shadow);
+      }
+
+      .hero h1 {
+        margin: 0 0 10px;
+        font-size: clamp(2rem, 4vw, 3.6rem);
+        line-height: 0.95;
+        letter-spacing: -0.05em;
+      }
+
+      .hero p {
+        margin: 0;
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 1rem;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .pill {
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: rgba(23, 33, 39, 0.05);
+        color: var(--ink);
+        font-size: 0.9rem;
+      }
+
+      nav {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 10px;
+        margin: 18px 0 22px;
+      }
+
+      nav a {
+        text-decoration: none;
+        color: var(--ink);
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px solid rgba(23, 33, 39, 0.08);
+        background: rgba(255, 255, 255, 0.55);
+        backdrop-filter: blur(8px);
+      }
+
+      nav a.active {
+        background: linear-gradient(135deg, var(--accent), #115e59);
+        color: white;
+        border-color: transparent;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+      }
+
+      .card {
+        grid-column: span 12;
+        border-radius: 24px;
+        background: var(--panel);
+        border: 1px solid rgba(23, 33, 39, 0.08);
+        box-shadow: var(--shadow);
+        padding: 20px;
+      }
+
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 1.15rem;
+      }
+
+      .card p,
+      .card li {
+        color: var(--muted);
+      }
+
+      .two-up {
+        grid-column: span 6;
+      }
+
+      .three-up {
+        grid-column: span 4;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+      }
+
+      .stat {
+        padding: 16px;
+        border-radius: 18px;
+        background: rgba(15, 118, 110, 0.08);
+      }
+
+      .stat strong {
+        display: block;
+        font-size: 1.8rem;
+        color: var(--ink);
+      }
+
+      .banner {
+        padding: 14px 16px;
+        border-radius: 18px;
+        margin-bottom: 14px;
+      }
+
+      .banner.notice {
+        background: rgba(15, 118, 110, 0.1);
+        color: #0b5a54;
+      }
+
+      .banner.error {
+        background: rgba(180, 35, 24, 0.1);
+        color: #8d1a12;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 12px 10px;
+        border-bottom: 1px solid var(--line);
+        font-size: 0.95rem;
+      }
+
+      th {
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      code,
+      pre,
+      textarea,
+      input {
+        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 0;
+        color: var(--ink);
+      }
+
+      .code-box {
+        border-radius: 18px;
+        padding: 14px;
+        background: rgba(23, 33, 39, 0.04);
+        border: 1px solid rgba(23, 33, 39, 0.08);
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 0.92rem;
+        color: var(--ink);
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(23, 33, 39, 0.12);
+        background: rgba(255, 255, 255, 0.82);
+        color: var(--ink);
+        font-size: 0.96rem;
+      }
+
+      textarea {
+        min-height: 180px;
+        resize: vertical;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      button,
+      .button {
+        border: 0;
+        border-radius: 999px;
+        padding: 11px 16px;
+        background: linear-gradient(135deg, var(--accent), #115e59);
+        color: white;
+        cursor: pointer;
+        font-size: 0.95rem;
+        text-decoration: none;
+      }
+
+      button.secondary,
+      .button.secondary {
+        background: rgba(23, 33, 39, 0.08);
+        color: var(--ink);
+      }
+
+      button.danger {
+        background: linear-gradient(135deg, var(--danger), #7a1d16);
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(180, 83, 9, 0.1);
+        color: #8c4b0b;
+        font-size: 0.82rem;
+      }
+
+      @media (max-width: 900px) {
+        .two-up,
+        .three-up {
+          grid-column: span 12;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <h1>ccbot Control Center</h1>
+        <p>本地文件系统就是状态源。这个控制台只做轻量管理，不引入数据库，也不接管运行中的 Agent 进程。</p>
+        <div class="meta">
+          <span class="pill">v{{ version }}</span>
+          <span class="pill">config: {{ config_path }}</span>
+          {% if workspace_path %}
+          <span class="pill">workspace: {{ workspace_path }}</span>
+          {% endif %}
+          {% if model_name %}
+          <span class="pill">model: {{ model_name }}</span>
+          {% endif %}
+        </div>
+      </section>
+
+      <nav>
+        <a href="{{ request.url_for('dashboard') }}" class="{% if active == 'dashboard' %}active{% endif %}">Dashboard</a>
+        <a href="{{ request.url_for('scheduler_page') }}" class="{% if active == 'scheduler' %}active{% endif %}">Scheduler</a>
+        <a href="{{ request.url_for('config_page') }}" class="{% if active == 'config' %}active{% endif %}">Config</a>
+        <a href="{{ request.url_for('agents_page') }}" class="{% if active == 'agents' %}active{% endif %}">Agents</a>
+        <a href="{{ request.url_for('env_page') }}" class="{% if active == 'env' %}active{% endif %}">Env</a>
+      </nav>
+
+      {% block content %}{% endblock %}
+    </div>
+  </body>
+</html>

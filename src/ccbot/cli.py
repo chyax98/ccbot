@@ -335,3 +335,30 @@ def run(
             await team.stop()
 
     asyncio.run(main())
+
+
+@app.command()
+def web(
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", "-c", help="配置文件路径（JSON）"),
+    ] = _DEFAULT_CONFIG,
+    host: Annotated[str, typer.Option("--host", help="监听地址")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", help="监听端口")] = 8787,
+) -> None:
+    """启动本地 Web 控制台。"""
+    import uvicorn
+
+    from ccbot.webui import create_app
+
+    app_instance = create_app(config_path)
+    console.print(
+        Panel(
+            f"{__logo__} 启动 Web 控制台\n"
+            f"Host: [cyan]{host}[/cyan]\n"
+            f"Port: [cyan]{port}[/cyan]\n"
+            f"Config: [cyan]{config_path}[/cyan]",
+            border_style="cyan",
+        )
+    )
+    uvicorn.run(app_instance, host=host, port=port, log_level="info")

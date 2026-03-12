@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}ccbot agents{% endblock %}
+{% block content %}
+<section class="grid">
+  <article class="card two-up">
+    <h2>Agent Prompt And Skill Files</h2>
+    {% if agent_files %}
+    <table>
+      <thead>
+        <tr>
+          <th>Kind</th>
+          <th>File</th>
+          <th>Preview</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in agent_files %}
+        <tr>
+          <td><span class="tag">{{ item.kind }}</span></td>
+          <td>
+            <a class="button secondary" href="{{ request.url_for('file_preview') }}?path={{ item.path | urlencode }}">Open</a><br /><br />
+            <code>{{ item.path }}</code>
+          </td>
+          <td><div class="code-box"><pre>{{ item.preview }}</pre></div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>当前没有发现可展示的 prompt / skill 文件。</p>
+    {% endif %}
+  </article>
+
+  <article class="card two-up">
+    <h2>MCP / External Skills Surface</h2>
+    {% if mcp_servers %}
+    <table>
+      <thead>
+        <tr>
+          <th>Server</th>
+          <th>Config</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for name, payload in mcp_servers.items() %}
+        <tr>
+          <td><strong>{{ name }}</strong></td>
+          <td><div class="code-box"><pre>{{ payload | tojson(indent=2) }}</pre></div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>当前没有配置 MCP servers。这个页面先作为 agents / skills 的清单视图。</p>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}

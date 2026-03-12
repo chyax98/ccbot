@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}ccbot config{% endblock %}
+{% block content %}
+<section class="grid">
+  <article class="card">
+    <h2>Raw Config</h2>
+    <p>这里直接编辑 `config.json`。环境变量覆盖仍然有效，但不会回写到这个文件里。</p>
+    {% if notice %}<div class="banner notice">{{ notice }}</div>{% endif %}
+    {% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+    <form method="post" action="{{ request.url_for('save_config') }}">
+      <label>
+        Config JSON
+        <textarea name="config_text">{{ config_text }}</textarea>
+      </label>
+      <div class="actions">
+        <button type="submit">Save config</button>
+      </div>
+    </form>
+  </article>
+</section>
+{% endblock %}

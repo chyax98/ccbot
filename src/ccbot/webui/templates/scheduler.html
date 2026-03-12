@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}ccbot scheduler{% endblock %}
+{% block content %}
+<section class="grid">
+  <article class="card">
+    <h2>Schedule Jobs</h2>
+    <p>这里管理的是持久化到 workspace 的任务定义，适合维护顶层调度。`run now` 这类实时控制暂时不在这个独立控制台里做。</p>
+    {% if notice %}<div class="banner notice">{{ notice }}</div>{% endif %}
+    {% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+    {% if jobs %}
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Cron</th>
+          <th>Status</th>
+          <th>Prompt</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td>
+            <strong>{{ job.name }}</strong><br />
+            <span class="muted">{{ job.job_id }}</span>
+          </td>
+          <td>{{ job.cron_expr }}<br /><span class="muted">{{ job.timezone }}</span></td>
+          <td>
+            <span class="tag">{{ "enabled" if job.enabled else "paused" }}</span><br />
+            <span class="muted">{{ job.last_status }}</span>
+          </td>
+          <td><div class="code-box"><pre>{{ job.prompt }}</pre></div></td>
+          <td>
+            <div class="actions">
+              <form method="post" action="{{ request.url_for('toggle_scheduler_job', job_id=job.job_id) }}">
+                <button class="secondary" type="submit">{{ "Pause" if job.enabled else "Resume" }}</button>
+              </form>
+              <form method="post" action="{{ request.url_for('delete_scheduler_job', job_id=job.job_id) }}">
+                <button class="danger" type="submit">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>当前没有定时任务。</p>
+    {% endif %}
+  </article>
+
+  <article class="card">
+    <h2>Create Job</h2>
+    <form method="post" action="{{ request.url_for('create_scheduler_job') }}">
+      <label>
+        Name
+        <input name="name" placeholder="例如：日报" required />
+      </label>
+      <label>
+        Cron
+        <input name="cron_expr" placeholder="0 9 * * *" required />
+      </label>
+      <label>
+        Timezone
+        <input name="timezone" value="Asia/Shanghai" required />
+      </label>
+      <label>
+        Purpose
+        <input name="purpose" placeholder="为什么创建这个任务" />
+      </label>
+      <label>
+        Prompt
+        <textarea name="prompt" placeholder="到点后发给 Supervisor 的提示词" required></textarea>
+      </label>
+      <div class="actions">
+        <button type="submit">Create schedule</button>
+      </div>
+    </form>
+  </article>
+</section>
+{% endblock %}

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}ccbot dashboard{% endblock %}
+{% block content %}
+<section class="grid">
+  <article class="card">
+    <h2>Overview</h2>
+    <div class="stats">
+      <div class="stat">
+        <strong>{{ scheduler_jobs|length }}</strong>
+        <span class="muted">persisted schedule jobs</span>
+      </div>
+      <div class="stat">
+        <strong>{{ agent_files|length }}</strong>
+        <span class="muted">prompt / skill files discovered</span>
+      </div>
+      <div class="stat">
+        <strong>{{ env_items|length }}</strong>
+        <span class="muted">managed env keys in agent.env</span>
+      </div>
+      <div class="stat">
+        <strong>{{ "yes" if config_exists else "no" }}</strong>
+        <span class="muted">materialized config.json</span>
+      </div>
+    </div>
+  </article>
+
+  <article class="card two-up">
+    <h2>Runtime Shape</h2>
+    <table>
+      <tr><th>Workspace</th><td>{{ runtime_config.agent.workspace }}</td></tr>
+      <tr><th>Max turns</th><td>{{ runtime_config.agent.max_turns }}</td></tr>
+      <tr><th>Max workers</th><td>{{ runtime_config.agent.max_workers }}</td></tr>
+      <tr><th>Pooled workers</th><td>{{ runtime_config.agent.max_pooled_workers }}</td></tr>
+      <tr><th>Scheduler</th><td>{{ "enabled" if runtime_config.agent.scheduler_enabled else "disabled" }}</td></tr>
+      <tr><th>Heartbeat</th><td>{{ "enabled" if runtime_config.agent.heartbeat_enabled else "disabled" }}</td></tr>
+    </table>
+  </article>
+
+  <article class="card two-up">
+    <h2>Operational Notes</h2>
+    <ul>
+      <li>Scheduler 页面修改的是持久化任务文件；独立运行中的 `ccbot run` 进程不会自动热加载。</li>
+      <li>Env 页面管理的是 `agent.env` 注入变量，不是宿主机 shell 的永久环境变量。</li>
+      <li>Agents 页面先提供 prompt / skill 浏览，后续可以再做细粒度编辑。</li>
+    </ul>
+  </article>
+
+  <article class="card three-up">
+    <h2>Recent Jobs</h2>
+    {% if scheduler_jobs %}
+    <table>
+      {% for job in scheduler_jobs[:5] %}
+      <tr>
+        <td>
+          <strong>{{ job.name }}</strong><br />
+          <span class="muted">{{ job.cron_expr }} · {{ job.timezone }}</span>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p>当前没有持久化定时任务。</p>
+    {% endif %}
+  </article>
+
+  <article class="card three-up">
+    <h2>Managed Env</h2>
+    {% if env_items %}
+    <table>
+      {% for item in env_items[:6] %}
+      <tr><td><code>{{ item.key }}</code></td><td>{{ item.value }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p>当前 `agent.env` 为空。</p>
+    {% endif %}
+  </article>
+
+  <article class="card three-up">
+    <h2>Agent Files</h2>
+    {% if agent_files %}
+    <table>
+      {% for item in agent_files[:6] %}
+      <tr>
+        <td>
+          <span class="tag">{{ item.kind }}</span><br />
+          <strong>{{ item.name }}</strong>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p>暂未发现 agent / skill 文件。</p>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}
