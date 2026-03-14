@@ -39,6 +39,7 @@ class AgentConfig(BaseModel):
     # Scheduler 配置
     scheduler_enabled: bool = True
     scheduler_poll_interval_s: int = 30
+    scheduler_job_timeout_s: int = 1800  # 单个定时任务执行超时（秒），默认 30 分钟
 
     # Heartbeat 配置
     heartbeat_enabled: bool = True

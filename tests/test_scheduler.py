@@ -68,8 +68,14 @@ async def test_scheduler_run_job_now(tmp_path: Path) -> None:
     )
 
     ran = await scheduler.run_job_now(job.job_id)
-
     assert ran == "started"
+
+    # run_job_now 是异步触发（fire-and-forget），等待后台任务完成
+    await asyncio.sleep(0.1)
+    # 等待 _run_tasks 全部完成
+    if scheduler._run_tasks:
+        await asyncio.gather(*scheduler._run_tasks, return_exceptions=True)
+
     saved = scheduler.get_job(job.job_id)
     assert saved is not None
     assert saved.last_status == "succeeded"
@@ -105,15 +111,20 @@ async def test_scheduler_run_job_now_rejects_active_job(tmp_path: Path) -> None:
         conversation_id="chat-1",
     )
 
-    task = asyncio.create_task(scheduler.run_job_now(job.job_id))
+    first = await scheduler.run_job_now(job.job_id)
+    assert first == "started"
+
+    # 等待后台任务开始执行
     await started.wait()
 
+    # 任务仍在执行，再次触发应返回 already_running
     result = await scheduler.run_job_now(job.job_id)
     assert result == "already_running"
 
+    # 释放执行，等待后台任务完成
     release.set()
-    first = await task
-    assert first == "started"
+    if scheduler._run_tasks:
+        await asyncio.gather(*scheduler._run_tasks, return_exceptions=True)
 
 
 @pytest.mark.asyncio

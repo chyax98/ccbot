@@ -308,6 +308,7 @@ def run(
         schedule_execute,
         schedule_notify,
         poll_interval_s=config.agent.scheduler_poll_interval_s,
+        job_timeout_s=config.agent.scheduler_job_timeout_s,
     )
     team.set_scheduler(scheduler)
 

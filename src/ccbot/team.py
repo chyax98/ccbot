@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -26,6 +27,11 @@ from ccbot.runtime.tools import create_runtime_tools
 from ccbot.runtime.worker_pool import WorkerPool
 from ccbot.scheduler import SchedulerService
 from ccbot.workspace import WorkspaceManager
+
+# per-task 请求上下文，避免并发请求间的竞态条件
+_current_request_context: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "_current_request_context", default=None
+)
 
 _TEAM_HELP_TEXT = """\
 🐈 ccbot commands:
@@ -63,7 +69,6 @@ class AgentTeam:
         )
         self._worker_pool = WorkerPool(config, workspace_path=workspace.path)
         self._scheduler: SchedulerService | None = None
-        self._last_request_context: dict[str, Any] = {}
         self._background_tasks: set[asyncio.Task[None]] = set()
         self._background_tasks_by_chat: dict[str, set[asyncio.Task[None]]] = {}
         self._background_task_workers: dict[asyncio.Task[None], frozenset[str]] = {}
@@ -71,9 +76,10 @@ class AgentTeam:
     def set_scheduler(self, scheduler: SchedulerService) -> None:
         self._scheduler = scheduler
         # 创建 runtime tools 并注入 Supervisor 的 SDK MCP servers
+        # 使用 ContextVar 读取当前 task 的请求上下文，避免并发竞态
         sdk_server = create_runtime_tools(
             scheduler,
-            get_context=lambda: self._last_request_context,
+            get_context=lambda: _current_request_context.get() or {},
         )
         self._supervisor.set_sdk_mcp_servers({sdk_server["name"]: sdk_server})
 
@@ -156,8 +162,8 @@ class AgentTeam:
         if control_reply is not None:
             return control_reply
 
-        # 保存请求上下文，供 runtime tools 的 get_context 回调使用
-        self._last_request_context = request_context or {}
+        # 设置当前 task 的请求上下文（ContextVar 隔离并发请求）
+        _current_request_context.set(request_context or {})
 
         # 当前日期始终注入：保留基础时间语义，同时降低分钟级抖动对 KV cache 的影响
         current_date = datetime.now().strftime("%Y-%m-%d (%A)")

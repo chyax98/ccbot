@@ -37,6 +37,7 @@ class SchedulerService:
         on_execute: ExecuteCallback,
         on_notify: NotifyCallback,
         poll_interval_s: int = 30,
+        job_timeout_s: int = 1800,
     ) -> None:
         self._root = workspace_path / ".ccbot" / "schedules"
         self._root.mkdir(parents=True, exist_ok=True)
@@ -44,6 +45,7 @@ class SchedulerService:
         self._on_execute = on_execute
         self._on_notify = on_notify
         self._poll_interval = poll_interval_s
+        self._job_timeout = job_timeout_s
         self._running = False
         self._task: asyncio.Task[None] | None = None
         self._run_tasks: set[asyncio.Task[None]] = set()
@@ -210,12 +212,13 @@ class SchedulerService:
         return True
 
     async def run_job_now(self, job_id: str) -> str:
+        """立即触发定时任务（异步执行，不阻塞调用方）。"""
         job = self._jobs.get(job_id)
         if job is None:
             return RunJobNowResult.MISSING
         if job.job_id in self._active_runs:
             return RunJobNowResult.ALREADY_RUNNING
-        await self._run_job(job)
+        self._launch_job(job)
         return RunJobNowResult.STARTED
 
     def format_status(self, max_shown: int = 5) -> str:
@@ -274,29 +277,43 @@ class SchedulerService:
 
         try:
             start = datetime.now(UTC)
-            await self._on_notify(job, f"⏰ 定时任务开始：{job.name} ({job.job_id})")
-            result = await self._on_execute(job)
+            await self._safe_notify(job, f"⏰ 定时任务开始：{job.name} ({job.job_id})")
+            result = await asyncio.wait_for(self._on_execute(job), timeout=self._job_timeout)
             job.last_run_at = start.isoformat()
             job.last_status = "succeeded"
             job.last_result_summary = result[:500]
             job.next_run_at = self._compute_next_run(job.cron_expr, job.timezone, start).isoformat()
             self._save_jobs()
             if result:
-                await self._on_notify(job, f"✅ 定时任务完成：{job.name}\n\n{result}")
+                await self._safe_notify(job, f"✅ 定时任务完成：{job.name}\n\n{result}")
         except asyncio.CancelledError:
             job.last_status = "idle"
             job.last_result_summary = "cancelled"
             self._save_jobs()
             raise
+        except TimeoutError:
+            job.last_status = "failed"
+            job.last_result_summary = f"执行超时（>{self._job_timeout}s）"
+            job.next_run_at = self._compute_next_run(job.cron_expr, job.timezone).isoformat()
+            self._save_jobs()
+            logger.error("定时任务执行超时 job_id={} timeout={}s", job.job_id, self._job_timeout)
+            await self._safe_notify(job, f"⏱️ 定时任务超时：{job.name}（超过 {self._job_timeout}s）")
         except Exception as exc:
             job.last_status = "failed"
             job.last_result_summary = str(exc)[:500]
             job.next_run_at = self._compute_next_run(job.cron_expr, job.timezone).isoformat()
             self._save_jobs()
             logger.exception("定时任务执行失败 job_id={}: {}", job.job_id, exc)
-            await self._on_notify(job, f"❌ 定时任务失败：{job.name}\n\n{exc}")
+            await self._safe_notify(job, f"❌ 定时任务失败：{job.name}\n\n{exc}")
         finally:
             self._active_runs.discard(job.job_id)
+
+    async def _safe_notify(self, job: ScheduledJob, content: str) -> None:
+        """发送通知，失败只记日志，不影响任务执行状态。"""
+        try:
+            await self._on_notify(job, content)
+        except Exception as exc:
+            logger.warning("定时任务通知发送失败 job_id={}: {}", job.job_id, exc)
 
     def _load_jobs(self) -> None:
         if not self._jobs_file.exists():
