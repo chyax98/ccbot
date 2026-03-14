@@ -61,7 +61,7 @@ class AgentTeam:
             role=RuntimeRole.SUPERVISOR,
             memory_store=self._memory_store,
         )
-        self._worker_pool = WorkerPool(config)
+        self._worker_pool = WorkerPool(config, workspace_path=workspace.path)
         self._scheduler: SchedulerService | None = None
         self._last_request_context: dict[str, Any] = {}
         self._background_tasks: set[asyncio.Task[None]] = set()

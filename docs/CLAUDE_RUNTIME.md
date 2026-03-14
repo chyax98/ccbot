@@ -1,7 +1,7 @@
 # Claude Runtime
 
-> 更新时间：2026-03-09
-> 作用：统一说明 Claude Agent SDK、`ClaudeSDKClient`、runtime profile、prompt 分层、memory 的设计与落地方式。
+> 更新时间：2026-03-14
+> 作用：统一说明 Claude Agent SDK、`ClaudeSDKClient`、runtime profile、prompt 分层、memory、SDK in-process tools 的设计与落地方式。
 
 ## 1. `ClaudeSDKClient` 在链路里的真实作用
 
@@ -103,7 +103,8 @@
 职责：
 
 - 理解任务
-- 决定 `respond / dispatch / schedule_create`
+- 决定 `respond / dispatch`（结构化输出）
+- 通过 `mcp__ccbot-runtime__schedule_*` 工具管理定时任务
 - 综合 Worker 结果
 - 维护记忆
 - 对用户负责
@@ -159,17 +160,57 @@
 - 不完全依赖 Claude 官方召回
 - 让产品拥有可检查、可编辑、可纠正的本地记忆面
 
-## 7. 还没充分用到、但值得保留视角的 SDK 能力
+## 7. SDK In-Process MCP Tools
 
-- 更细粒度的权限收缩
-- 更丰富的 MCP / custom tools
-- Reviewer 等角色化 profile 扩展
-- 更正式的 runtime control / rewind / checkpointing 策略
+### 7.1 机制
 
-但当前顺序仍应是：
+Claude Agent SDK 原生支持进程内 MCP server：通过 `@tool` 装饰器定义工具函数，用 `create_sdk_mcp_server()` 注册到 SDK。工具函数在 ccbot 主进程内执行，直接访问内存中的 runtime 组件（如 `SchedulerService`），不经过文件 I/O 或 IPC。
 
-- 先把现有主链路用对、用稳
-- 再扩充高阶能力
+SDK 处理流程：
+
+1. `create_sdk_mcp_server()` 返回 `McpSdkServerConfig(type="sdk", instance=<Server>)`
+2. `ClaudeSDKClient` 启动时保留 `instance` 在进程内，CLI 子进程只收到 `{"type": "sdk", "name": "..."}`
+3. Claude 调用工具时，SDK 通过 `control_request(subtype="mcp_message")` 路由回 Python 进程
+4. 工具函数直接执行，结果即时返回模型上下文
+
+### 7.2 当前已部署的工具
+
+定时任务管理（`src/ccbot/runtime/tools.py`）：
+
+| 工具名 | 参数 | 行为 |
+|--------|------|------|
+| `mcp__ccbot-runtime__schedule_list` | 无 | 列出所有定时任务（含 paused） |
+| `mcp__ccbot-runtime__schedule_create` | name, cron_expr, timezone, prompt, purpose | 创建定时任务 |
+| `mcp__ccbot-runtime__schedule_delete` | job_id | 删除定时任务 |
+| `mcp__ccbot-runtime__schedule_pause` | job_id | 暂停定时任务 |
+| `mcp__ccbot-runtime__schedule_resume` | job_id | 恢复定时任务 |
+
+### 7.3 注入链路
+
+```text
+SchedulerService
+    ↓ create_runtime_tools(scheduler, get_context)
+McpSdkServerConfig
+    ↓ team.set_scheduler() → supervisor.set_sdk_mcp_servers()
+AgentPool._sdk_mcp_servers
+    ↓ _create_client() → merge into kwargs["mcp_servers"]
+ClaudeAgentOptions
+```
+
+### 7.4 为什么用 in-process tools 替代 structured output
+
+此前 schedule 操作通过 `SupervisorResponse` 的结构化输出（`mode="schedule_create"` / `mode="schedule_manage"`）实现。实际运行中发现 agent 倾向直接 `Edit` jobs.json 文件，导致 `SchedulerService` 内存状态不同步。
+
+工具化解决了这个问题：
+
+- agent 像使用 Read/Write/Bash 一样自然地调用 `schedule_*` 工具
+- 工具函数直接操作 `SchedulerService` 内存，保证状态一致
+- 不再依赖"最终回复时才触发"的结构化输出，agent 可以在执行过程中随时管理 schedule
+
+### 7.5 扩展方向
+
+- Worker 管理工具化（`worker_list` 等）
+- 更多 runtime 能力暴露为工具（memory 操作、heartbeat 管理等）
 
 ## 8. 对产品设计的直接启发
 
@@ -177,6 +218,7 @@
 - Role 必须进入运行时，而不是只写在 prompt 文本里
 - Dispatch 优先结构化，而不是依赖长久的文本协议
 - 产品能力应尽量工具化，而不是长期堆 prompt
+- **Runtime 操作必须走工具/API，而不是让 agent 编辑配置文件**
 
 ## 9. 推荐阅读顺序
 

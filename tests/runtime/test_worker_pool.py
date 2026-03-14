@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,11 +20,11 @@ def base_config() -> AgentConfig:
 
 
 @pytest.fixture
-def pool(base_config: AgentConfig) -> WorkerPool:
-    return WorkerPool(base_config)
+def pool(base_config: AgentConfig, tmp_path: Path) -> WorkerPool:
+    return WorkerPool(base_config, workspace_path=tmp_path)
 
 
-def _make_task(name: str = "fe", cwd: str = "/tmp/fe", task: str = "build UI") -> WorkerTask:
+def _make_task(name: str = "fe", cwd: str = ".", task: str = "build UI") -> WorkerTask:
     return WorkerTask(name=name, cwd=cwd, task=task)
 
 
@@ -116,8 +117,8 @@ class TestWorkerPoolStatus:
     async def test_list_workers(self, pool: WorkerPool) -> None:
         mock = _mock_client()
         with patch.object(pool, "_create_client", return_value=mock):
-            await pool.get_or_create(_make_task("fe", "/fe", "t1"))
-            await pool.get_or_create(_make_task("be", "/be", "t2"))
+            await pool.get_or_create(_make_task("fe", ".", "t1"))
+            await pool.get_or_create(_make_task("be", ".", "t2"))
         workers = pool.list_workers()
         assert len(workers) == 2
         assert {w.name for w in workers} == {"fe", "be"}
@@ -151,8 +152,8 @@ class TestWorkerPoolLifecycle:
     async def test_stop_closes_all_workers(self, pool: WorkerPool) -> None:
         m1, m2 = _mock_client(), _mock_client()
         with patch.object(pool, "_create_client", side_effect=[m1, m2]):
-            await pool.get_or_create(_make_task("fe", "/fe", "t1"))
-            await pool.get_or_create(_make_task("be", "/be", "t2"))
+            await pool.get_or_create(_make_task("fe", ".", "t1"))
+            await pool.get_or_create(_make_task("be", ".", "t2"))
         await pool.stop()
         m1.disconnect.assert_awaited_once()
         m2.disconnect.assert_awaited_once()
@@ -187,11 +188,11 @@ class TestWorkerPoolLifecycle:
         pool = WorkerPool(config)
         m1, m2, m3 = _mock_client(), _mock_client(), _mock_client()
         with patch.object(pool, "_create_client", side_effect=[m1, m2, m3]):
-            await pool.get_or_create(_make_task("w1", "/w1", "t1"))
-            await pool.get_or_create(_make_task("w2", "/w2", "t2"))
+            await pool.get_or_create(_make_task("w1", ".", "t1"))
+            await pool.get_or_create(_make_task("w2", ".", "t2"))
             pool._info["w1"].last_used = time.time() - 100
             pool._info["w2"].last_used = time.time() - 10
-            await pool.get_or_create(_make_task("w3", "/w3", "t3"))
+            await pool.get_or_create(_make_task("w3", ".", "t3"))
 
         assert not pool.has_worker("w1")
         assert pool.has_worker("w2")
@@ -204,12 +205,12 @@ class TestWorkerPoolLifecycle:
         pool = WorkerPool(config)
         m1, m2, m3 = _mock_client(), _mock_client(), _mock_client()
         with patch.object(pool, "_create_client", side_effect=[m1, m2, m3]):
-            await pool.get_or_create(_make_task("w1", "/w1", "t1"))
-            await pool.get_or_create(_make_task("w2", "/w2", "t2"))
+            await pool.get_or_create(_make_task("w1", ".", "t1"))
+            await pool.get_or_create(_make_task("w2", ".", "t2"))
             pool._info["w1"].status = WorkerStatus.RUNNING
             pool._info["w2"].status = WorkerStatus.RUNNING
             with pytest.raises(RuntimeError, match="Worker 池已满"):
-                await pool.get_or_create(_make_task("w3", "/w3", "t3"))
+                await pool.get_or_create(_make_task("w3", ".", "t3"))
 
     @pytest.mark.asyncio
     async def test_send_error_resets_status(self, pool: WorkerPool) -> None:
@@ -250,7 +251,7 @@ class TestWorkerPoolLifecycle:
         assert options_seen["setting_sources"] == ["user", "project"]
         assert options_seen["disallowed_tools"] == ["Agent", "SendMessage"]
         assert callable(options_seen["stderr"])
-        assert options_seen["cwd"] == "/tmp/fe"
+        assert options_seen["cwd"] == "."
         dummy_client.connect.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -316,8 +317,8 @@ class TestWorkerPoolLifecycle:
     async def test_same_worker_name_is_isolated_by_owner(self, pool: WorkerPool) -> None:
         m1, m2 = _mock_client(), _mock_client()
         with patch.object(pool, "_create_client", side_effect=[m1, m2]) as create:
-            await pool.get_or_create(_make_task("reviewer", "/a", "t1"), owner_id="chat-a")
-            await pool.get_or_create(_make_task("reviewer", "/b", "t2"), owner_id="chat-b")
+            await pool.get_or_create(_make_task("reviewer", ".", "t1"), owner_id="chat-a")
+            await pool.get_or_create(_make_task("reviewer", ".", "t2"), owner_id="chat-b")
 
         assert create.await_count == 2
         assert pool.has_worker("reviewer", owner_id="chat-a")

@@ -14,12 +14,13 @@ from typing import Any
 from loguru import logger
 
 
-async def extract_content(event: dict, client: Any = None) -> str:
+async def extract_content(event: dict, client: Any = None, *, tmp_dir: Path | None = None) -> str:
     """提取消息内容（异步，支持图片/文件下载）。
 
     Args:
         event: 飞书事件字典
         client: Lark SDK client（图片/文件下载需要）
+        tmp_dir: 临时文件目录，None 时使用默认 ~/.ccbot/tmp
 
     Returns:
         提取出的文本内容

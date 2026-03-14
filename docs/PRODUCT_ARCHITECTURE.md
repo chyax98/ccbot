@@ -1,6 +1,6 @@
 # Product & Architecture
 
-> 更新时间：2026-03-09
+> 更新时间：2026-03-14
 > 作用：统一说明 `ccbot` 的产品目标、当前架构、阶段边界，以及为什么现在这样设计。
 
 ## 1. 产品定义
@@ -16,7 +16,7 @@
 当前最重要的产品目标不是“协议互联”或“远程集群”，而是把以下三件事做扎实：
 
 - 消息能稳定收、稳定执行、稳定回
-- Supervisor 能清楚决策何时直答、何时 dispatch、何时创建 schedule
+- Supervisor 能清楚决策何时直答、何时 dispatch，并通过工具管理 schedule
 - Worker 能在真实项目目录里可靠执行，并把结果回到用户链路
 
 ## 2. 当前主线架构
@@ -63,8 +63,8 @@ AgentTeam
 编排层负责：
 
 - 接收用户输入
-- 调用 Supervisor 做结构化决策
-- 处理 `respond / dispatch / schedule_create`
+- 调用 Supervisor 做结构化决策（`respond / dispatch`）
+- 注入 SDK in-process tools（schedule 管理等）
 - 派发 Worker
 - 汇总 Worker 结果
 - 处理 `/help`、`/new`、`/stop`、`/workers`、`/memory`、`/schedule` 等控制命令
@@ -106,6 +106,8 @@ Scheduler 负责：
 
 - 默认创建 Supervisor job
 - 到点后由 Supervisor 再决定是否 dispatch Worker
+- Schedule 管理通过 SDK in-process tools 暴露给 Supervisor（`mcp__ccbot-runtime__schedule_*`），而非结构化输出
+- `/schedule *` 控制命令作为用户直接操控旁路保留
 
 ### 3.6 Memory
 

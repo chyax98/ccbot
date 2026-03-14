@@ -9,6 +9,9 @@ from loguru import logger
 
 _TEMPLATES = Path(__file__).parent / "templates"
 
+# workspace 初始化时跳过这些模板子目录（运行时不使用，避免在 workspace 中留下无用副本）
+_SKIP_TEMPLATE_DIRS = {"prompts", "worker"}
+
 
 class WorkspaceManager:
     """
@@ -23,6 +26,8 @@ class WorkspaceManager:
     运行时状态统一放在 workspace/.ccbot/ 下：
       .ccbot/memory/         — Supervisor 本地长期/短期记忆
       .ccbot/schedules/      — 定时任务持久化
+      .ccbot/dedup/          — 飞书去重缓存
+      .ccbot/tmp/            — 飞书临时文件
 
     其他动态文件：
       HEARTBEAT.md           — 心跳任务入口
@@ -35,6 +40,7 @@ class WorkspaceManager:
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser().resolve()
         self._init()
+        self._migrate_legacy()
 
     def _init(self) -> None:
         """首次运行：将 templates/ 下的文件复制到 workspace，已存在的跳过。"""
@@ -44,11 +50,30 @@ class WorkspaceManager:
         for src in _TEMPLATES.rglob("*"):
             if src.is_file():
                 rel = src.relative_to(_TEMPLATES)
+                # 跳过不需要复制到 workspace 的模板子目录
+                if rel.parts and rel.parts[0] in _SKIP_TEMPLATE_DIRS:
+                    continue
                 dst = self.path / rel
                 if not dst.exists():
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
                     logger.debug("初始化: {}", rel)
+
+    def _migrate_legacy(self) -> None:
+        """迁移旧版 ~/.ccbot/ 下散落的运行时目录到 workspace/.ccbot/。
+
+        幂等操作：仅在源存在且目标不存在时执行 copy，不删除旧目录。
+        """
+        legacy_root = Path.home() / ".ccbot"
+        for dirname in ("dedup", "tmp"):
+            src = legacy_root / dirname
+            dst = self.runtime_dir / dirname
+            if src.is_dir() and not dst.exists():
+                try:
+                    shutil.copytree(src, dst)
+                    logger.info("迁移旧目录: {} → {}", src, dst)
+                except OSError as exc:
+                    logger.warning("迁移旧目录失败: {} → {} ({})", src, dst, exc)
 
     @property
     def heartbeat_file(self) -> Path:
@@ -62,6 +87,16 @@ class WorkspaceManager:
     @property
     def runtime_dir(self) -> Path:
         return self.path / ".ccbot"
+
+    @property
+    def dedup_dir(self) -> Path:
+        """飞书去重缓存目录。"""
+        return self.runtime_dir / "dedup"
+
+    @property
+    def tmp_dir(self) -> Path:
+        """飞书临时文件目录。"""
+        return self.runtime_dir / "tmp"
 
     def build_system_prompt(self) -> str:
         """注入静态内容：workspace 路径。当前时间由 team.py 每轮注入 runtime_context。"""

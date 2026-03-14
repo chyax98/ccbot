@@ -35,10 +35,11 @@ class WorkerTask(BaseModel):
     @field_validator("cwd")
     @classmethod
     def validate_cwd(cls, v: str) -> str:
-        """验证 cwd 为绝对路径（如果非默认值）。"""
-        if v != "." and not v.startswith("/"):
-            # 允许相对路径，但建议绝对路径
-            pass
+        """验证 cwd 为绝对路径（"." 作为默认值由运行时解析）。"""
+        if v == ".":
+            return v
+        if not v.startswith("/"):
+            raise ValueError(f"cwd 必须是绝对路径，收到: '{v}'")
         return v
 
 

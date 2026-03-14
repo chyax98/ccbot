@@ -172,7 +172,13 @@ class AgentPool:
         else:
             base_prompt = ""
 
-        cwd = self._config.cwd or (str(self._workspace.path) if self._workspace else ".")
+        # cwd 解析：workspace 优先，无 workspace 时要求 config.cwd，禁止 "." 兜底
+        if self._workspace is not None:
+            cwd = str(self._workspace.path)
+        elif self._config.cwd:
+            cwd = self._config.cwd
+        else:
+            raise ValueError("AgentPool 缺少 workspace 或 config.cwd，无法确定工作目录")
 
         memory_prompt = ""
         resume_session_id = ""

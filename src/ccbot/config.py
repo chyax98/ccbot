@@ -47,7 +47,7 @@ class AgentConfig(BaseModel):
 
     # Worker 模式配置（供 ccbot worker 命令使用）
     system_prompt: str = ""  # 直接指定 system prompt，非空时跳过 workspace 构建
-    cwd: str = ""  # 工作目录覆盖，非空时替代 workspace.path
+    cwd: str = ""  # 工作目录覆盖（仅供 ccbot worker CLI 命令使用），非空时替代 workspace.path
 
     # Supervisor 记忆配置
     supervisor_resume_enabled: bool = True  # 启动后优先基于持久化 session_id resume

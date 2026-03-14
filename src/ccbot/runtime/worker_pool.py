@@ -86,8 +86,9 @@ class _WorkerActor:
 class WorkerPool:
     """持久化 Worker 池，直接管理 ClaudeSDKClient。"""
 
-    def __init__(self, base_config: AgentConfig) -> None:
+    def __init__(self, base_config: AgentConfig, workspace_path: Path | None = None) -> None:
         self._base_config = base_config
+        self._workspace_path = workspace_path
         self._idle_timeout = base_config.worker_idle_timeout
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._info: dict[str, WorkerInfo] = {}
@@ -118,9 +119,16 @@ class WorkerPool:
             await self._kill_key(name)
         logger.info("WorkerPool 已停止")
 
+    def _resolve_cwd(self, raw_cwd: str) -> str:
+        """将 cwd 默认值 '.' 解析为 workspace 路径。"""
+        if raw_cwd == "." and self._workspace_path is not None:
+            return str(self._workspace_path)
+        return raw_cwd
+
     async def get_or_create(self, task: WorkerTask, *, owner_id: str = "") -> None:
         """获取或创建 Worker。"""
         key = self._worker_key(task.name, owner_id)
+        resolved_cwd = self._resolve_cwd(task.cwd)
 
         async with self._registry_lock:
             actor = self._actors.get(key)
@@ -130,12 +138,21 @@ class WorkerPool:
 
             await self._evict_if_needed(key)
 
+            # 确保 cwd 目录存在
+            cwd_path = Path(resolved_cwd)
+            if not cwd_path.is_dir():
+                try:
+                    cwd_path.mkdir(parents=True, exist_ok=True)
+                    logger.info("Worker cwd 自动创建: {}", resolved_cwd)
+                except OSError as exc:
+                    logger.warning("Worker cwd 不存在且无法创建: {} ({})", resolved_cwd, exc)
+
             loop = asyncio.get_running_loop()
             ready: asyncio.Future[None] = loop.create_future()
             queue: asyncio.Queue[_WorkerCommand] = asyncio.Queue()
             info = WorkerInfo(
                 name=task.name,
-                cwd=str(task.cwd),
+                cwd=resolved_cwd,
                 model=task.model or self._base_config.model or "default",
                 owner_id=owner_id,
                 key=key,
