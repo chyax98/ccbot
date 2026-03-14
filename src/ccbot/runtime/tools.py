@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
+from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 from loguru import logger
 
 from ccbot.models.schedule import ScheduleSpec
@@ -29,7 +29,7 @@ def _noop_context() -> dict[str, str]:
 def create_runtime_tools(
     scheduler: SchedulerService,
     get_context: ContextProvider | None = None,
-) -> dict[str, Any]:
+) -> McpSdkServerConfig:
     """创建 ccbot 运行时 SDK MCP server。
 
     通过闭包捕获 SchedulerService 引用，工具函数直接操作内存中的 scheduler。

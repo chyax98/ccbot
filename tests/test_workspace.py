@@ -55,3 +55,57 @@ def test_build_system_prompt_is_concise(ws: WorkspaceManager) -> None:
     # 新的 build_system_prompt 只注入动态内容，不包含大段静态指令
     prompt = ws.build_system_prompt()
     assert len(prompt) < 500, "system prompt should be concise (static content is in CLAUDE.md)"
+
+
+def test_dedup_dir_and_tmp_dir(ws: WorkspaceManager) -> None:
+    """dedup_dir 和 tmp_dir 应指向 workspace/.ccbot/ 下。"""
+    assert ws.dedup_dir == ws.path / ".ccbot" / "dedup"
+    assert ws.tmp_dir == ws.path / ".ccbot" / "tmp"
+
+
+def test_skip_template_dirs(tmp_path: Path) -> None:
+    """prompts/ 和 worker/ 模板子目录不应被复制到 workspace。"""
+    ws = WorkspaceManager(tmp_path / "ws_skip")
+    # 即使 templates/prompts 和 templates/worker 存在，workspace 中也不应有
+    assert not (ws.path / "prompts").exists(), "prompts/ should not be copied to workspace"
+    assert not (ws.path / "worker").exists(), "worker/ should not be copied to workspace"
+
+
+def test_migrate_legacy(tmp_path: Path) -> None:
+    """_migrate_legacy 应将旧目录数据 copy 到 workspace/.ccbot/ 下。"""
+    from unittest.mock import patch
+
+    # 模拟旧版 ~/.ccbot/ 结构
+    fake_home = tmp_path / "fakehome"
+    old_dedup = fake_home / ".ccbot" / "dedup"
+    old_dedup.mkdir(parents=True)
+    (old_dedup / "feishu.json").write_text('{"ids": []}')
+
+    with patch("ccbot.workspace.Path.home", return_value=fake_home):
+        ws = WorkspaceManager(tmp_path / "ws_migrate")
+
+    # 检查迁移结果
+    new_dedup = ws.runtime_dir / "dedup"
+    assert new_dedup.is_dir()
+    assert (new_dedup / "feishu.json").exists()
+    # 旧目录未删除
+    assert old_dedup.is_dir()
+
+
+def test_migrate_legacy_idempotent(tmp_path: Path) -> None:
+    """目标已存在时不应覆盖。"""
+    from unittest.mock import patch
+
+    fake_home = tmp_path / "fakehome"
+    old_dedup = fake_home / ".ccbot" / "dedup"
+    old_dedup.mkdir(parents=True)
+    (old_dedup / "feishu.json").write_text("old")
+
+    with patch("ccbot.workspace.Path.home", return_value=fake_home):
+        ws = WorkspaceManager(tmp_path / "ws_idem")
+        # 修改目标内容
+        (ws.runtime_dir / "dedup" / "feishu.json").write_text("new")
+        # 再次初始化不应覆盖
+        WorkspaceManager(ws.path)
+
+    assert (ws.runtime_dir / "dedup" / "feishu.json").read_text() == "new"

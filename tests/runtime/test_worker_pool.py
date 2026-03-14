@@ -328,6 +328,27 @@ class TestWorkerPoolLifecycle:
         await pool.stop()
 
     @pytest.mark.asyncio
+    async def test_resolve_cwd_dot_to_workspace(self, tmp_path: Path) -> None:
+        """cwd='.' 应被解析为 workspace_path。"""
+        config = AgentConfig(model="sonnet")
+        ws = tmp_path / "my_ws"
+        ws.mkdir()
+        pool = WorkerPool(config, workspace_path=ws)
+        assert pool._resolve_cwd(".") == str(ws)
+
+    @pytest.mark.asyncio
+    async def test_resolve_cwd_absolute_unchanged(self, pool: WorkerPool) -> None:
+        """绝对路径 cwd 不应被修改。"""
+        assert pool._resolve_cwd("/some/path") == "/some/path"
+
+    @pytest.mark.asyncio
+    async def test_resolve_cwd_dot_without_workspace(self) -> None:
+        """无 workspace 时 '.' 保持不变。"""
+        config = AgentConfig(model="sonnet")
+        pool = WorkerPool(config, workspace_path=None)
+        assert pool._resolve_cwd(".") == "."
+
+    @pytest.mark.asyncio
     async def test_send_retries_once_after_process_exit(self, pool: WorkerPool) -> None:
         from claude_agent_sdk._errors import ProcessError
 

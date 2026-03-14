@@ -43,6 +43,21 @@ class TestWorkerTask:
         with pytest.raises(ValueError):
             WorkerTask(name="test", task="task", max_turns=101)
 
+    def test_cwd_rejects_relative_path(self):
+        """非默认 cwd 必须是绝对路径。"""
+        with pytest.raises(ValueError, match="绝对路径"):
+            WorkerTask(name="test", task="task", cwd="relative/path")
+
+    def test_cwd_allows_absolute_path(self):
+        """绝对路径应通过验证。"""
+        task = WorkerTask(name="test", task="task", cwd="/absolute/path")
+        assert task.cwd == "/absolute/path"
+
+    def test_cwd_allows_dot_default(self):
+        """默认值 '.' 应通过验证。"""
+        task = WorkerTask(name="test", task="task", cwd=".")
+        assert task.cwd == "."
+
 
 class TestDispatchPayload:
     """Test cases for DispatchPayload."""
