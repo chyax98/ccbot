@@ -104,6 +104,7 @@ class AgentRunResult:
     text: str
     structured_output: Any = None
     runtime_session_id: str = ""
+    is_error: bool = False
 
 
 async def query_and_collect_result(
@@ -121,6 +122,7 @@ async def query_and_collect_result(
     tool_count = 0
     structured_output: Any = None
     runtime_session_id = ""
+    result_is_error = False
 
     async for msg in client.receive_response():
         if isinstance(msg, TaskProgressMessage):
@@ -148,6 +150,7 @@ async def query_and_collect_result(
             structured_output = msg.structured_output
             runtime_session_id = msg.session_id or runtime_session_id
             if msg.is_error:
+                result_is_error = True
                 logger.warning("{} stop_reason={}", log_prefix, msg.stop_reason)
 
         elif isinstance(msg, AssistantMessage):
@@ -165,6 +168,7 @@ async def query_and_collect_result(
         text=text,
         structured_output=structured_output,
         runtime_session_id=runtime_session_id,
+        is_error=result_is_error,
     )
 
 

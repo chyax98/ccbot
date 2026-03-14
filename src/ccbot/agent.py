@@ -133,6 +133,18 @@ class CCBotAgent:
                         on_progress=on_progress,
                         log_prefix=f"[{chat_id}]",
                     )
+
+                    # SDK 返回 is_error（如 resume 会话与当前模型不兼容），
+                    # 清除 stale session 后冷启动重试一次
+                    if result.is_error and attempt == 0:
+                        logger.warning(
+                            "[{}] SDK 返回 is_error，清除 session 后冷启动重试", chat_id
+                        )
+                        await self._close_session(chat_id)
+                        if self._memory_store is not None and self._role == RuntimeRole.SUPERVISOR:
+                            self._memory_store.set_runtime_session(chat_id, "")
+                        continue
+
                     logger.info("[{}] → {} chars", chat_id, len(result.text))
                     if self._memory_store is not None and self._role == RuntimeRole.SUPERVISOR:
                         if result.runtime_session_id:

@@ -108,10 +108,24 @@ class AgentPool:
         self._stderr_captures.pop(chat_id, None)
 
         if client:
-            try:
-                await client.disconnect()
-                logger.info("关闭 client: chat_id={}", chat_id)
-            except BaseException as e:
+            await self._safe_disconnect(client, chat_id)
+
+    async def _safe_disconnect(self, client: "ClaudeSDKClient", chat_id: str) -> None:
+        """安全断开 client，处理跨 task cancel scope 冲突。
+
+        Claude SDK 内部使用 anyio cancel scope，当 disconnect() 在与 connect()
+        不同的 asyncio.Task 中调用时会抛出 RuntimeError。
+        此时释放引用，让 SDK 子进程的退出机制自行清理。
+        """
+        try:
+            await client.disconnect()
+            logger.info("关闭 client: chat_id={}", chat_id)
+        except BaseException as e:
+            if "cancel scope" in str(e).lower():
+                logger.info(
+                    "关闭 client: chat_id={} (跨 task cancel scope，已释放引用)", chat_id
+                )
+            else:
                 logger.warning("关闭 client 出错: chat_id={} error={}", chat_id, e)
 
     async def interrupt(self, chat_id: str) -> bool:
@@ -229,8 +243,4 @@ class AgentPool:
         self._stderr_captures.clear()
 
         for chat_id, client in clients:
-            try:
-                await client.disconnect()
-                logger.debug("关闭 client: chat_id={}", chat_id)
-            except BaseException as exc:
-                logger.debug("关闭 client 跳过: chat_id={} error={}", chat_id, exc)
+            await self._safe_disconnect(client, chat_id)
