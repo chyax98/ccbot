@@ -155,7 +155,8 @@ class AgentPool:
             return ""
         snapshot = getattr(capture, "snapshot", None)
         if callable(snapshot):
-            return snapshot(limit=limit)
+            result: str = snapshot(limit=limit)
+            return result
         return ""
 
     async def _create_client(self, chat_id: str) -> ClaudeSDKClient:

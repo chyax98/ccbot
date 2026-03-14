@@ -54,9 +54,9 @@ def build_stderr_capture(prefix: str) -> StderrCapture:
 def format_sdk_error(error: Exception, recent_stderr: str = "") -> str:
     """Format SDK/runtime errors into a user-facing diagnostic string."""
     try:
-        import claude_agent_sdk._errors as sdk_errors
+        import claude_agent_sdk._errors as sdk_errors  # type: ignore[import-untyped]
     except Exception:
-        sdk_errors = None
+        sdk_errors = None  # type: ignore[assignment]
 
     process_error_cls = getattr(sdk_errors, "ProcessError", None) if sdk_errors else None
     if process_error_cls is not None and isinstance(error, process_error_cls):
@@ -79,12 +79,12 @@ def format_sdk_error(error: Exception, recent_stderr: str = "") -> str:
 def is_retryable_sdk_error(error: Exception) -> bool:
     """Whether the SDK error is likely recoverable by recreating the client once."""
     try:
-        import claude_agent_sdk._errors as sdk_errors
+        import claude_agent_sdk._errors as sdk_errors  # type: ignore[import-untyped]
     except Exception:
-        sdk_errors = None
+        sdk_errors = None  # type: ignore[assignment]
 
-    if sdk_errors is None:
-        return False
+    if sdk_errors is None:  # type: ignore[redundant-expr]
+        return False  # type: ignore[unreachable]
 
     process_error_cls = getattr(sdk_errors, "ProcessError", None)
     cli_connection_error_cls = getattr(sdk_errors, "CLIConnectionError", None)

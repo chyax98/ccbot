@@ -165,9 +165,12 @@ class WorkerPool:
             actor = _WorkerActor(info=info, queue=queue, task=actor_task, ready=ready)
             self._actors[key] = actor
             self._info[key] = info
-            actor_task.add_done_callback(
-                lambda done, worker_key=key: self._on_actor_done(worker_key, done)
-            )
+            _key = key  # capture for callback closure
+
+            def _on_done(done: asyncio.Task[None], *, wk: str = _key) -> None:
+                self._on_actor_done(wk, done)
+
+            actor_task.add_done_callback(_on_done)
 
         await ready
         logger.info(
@@ -478,6 +481,8 @@ class WorkerPool:
                     )
                     current_client = await self._create_client(recreate_task, worker_key=info.key)
                     self._clients[info.key] = current_client
+            # 循环在 attempt=1 时必定 return 或 raise，此处不可达
+            raise AssertionError("unreachable")  # pragma: no cover
         finally:
             info.status = WorkerStatus.IDLE
             info.last_used = time.time()
