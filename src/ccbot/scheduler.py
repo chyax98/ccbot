@@ -51,6 +51,11 @@ class SchedulerService:
         self._jobs: dict[str, ScheduledJob] = {}
         self._load_jobs()
 
+    @property
+    def active_runs(self) -> frozenset[str]:
+        """当前正在执行的 job_id 集合（只读快照）。"""
+        return frozenset(self._active_runs)
+
     async def start(self) -> None:
         if self._running:
             return

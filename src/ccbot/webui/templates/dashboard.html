@@ -37,13 +37,88 @@
   </article>
 
   <article class="card two-up">
+    {% if embedded %}
+    <h2>Runtime Status</h2>
+    <p><span class="tag">embedded</span> Web 控制台正运行在 ccbot run 进程内，数据实时可用。</p>
+    {% else %}
     <h2>Operational Notes</h2>
+    <p><span class="tag">standalone</span> 独立模式，仅读写磁盘文件。</p>
+    {% endif %}
     <ul>
-      <li>Scheduler 页面修改的是持久化任务文件；独立运行中的 `ccbot run` 进程不会自动热加载。</li>
-      <li>Env 页面管理的是 `agent.env` 注入变量，不是宿主机 shell 的永久环境变量。</li>
-      <li>Agents 页面先提供 prompt / skill 浏览，后续可以再做细粒度编辑。</li>
+      {% if not embedded %}
+      <li>Scheduler 页面修改的是持久化任务文件；运行中的 <code>ccbot run</code> 进程不会自动热加载。</li>
+      {% endif %}
+      <li>Env 页面管理的是 <code>agent.env</code> 注入变量，不是宿主机 shell 的永久环境变量。</li>
+      <li>Agents 页面提供 prompt / skill / MCP 浏览。</li>
     </ul>
   </article>
+
+  {% if embedded %}
+  <article class="card two-up">
+    <h2>Live Workers</h2>
+    {% if live_workers %}
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Status</th><th>Model</th><th>Tasks</th><th>Idle</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for w in live_workers %}
+        <tr>
+          <td><strong>{{ w.name }}</strong>{% if w.owner_id %}<br /><span class="muted">owner={{ w.owner_id }}</span>{% endif %}</td>
+          <td><span class="tag">{{ w.status }}</span></td>
+          <td>{{ w.model }}</td>
+          <td>{{ w.task_count }}</td>
+          <td>{{ w.idle_seconds }}s</td>
+          <td>
+            <form method="post" action="/api/workers/{{ w.name }}/interrupt" style="display:inline">
+              <button type="submit" class="button secondary small" title="中断当前任务">interrupt</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>当前没有活跃 Worker。</p>
+    {% endif %}
+  </article>
+
+  <article class="card two-up">
+    <h2>Scheduler (Live)</h2>
+    {% if live_scheduler.enabled and live_scheduler.jobs %}
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Status</th><th>Cron</th><th>Next Run</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for job in live_scheduler.jobs[:8] %}
+        <tr>
+          <td>
+            <strong>{{ job.name }}</strong><br />
+            <span class="muted">{{ job.job_id }}</span>
+          </td>
+          <td>
+            <span class="tag">{{ job.last_status }}</span>
+            {% if job.job_id in live_scheduler.active_runs %}<span class="tag">running</span>{% endif %}
+          </td>
+          <td>{{ job.cron_expr }}</td>
+          <td>{{ job.next_run_at[:16] }}</td>
+          <td>
+            <form method="post" action="/api/scheduler/{{ job.job_id }}/run" style="display:inline">
+              <button type="submit" class="button secondary small" title="立即执行">run</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% elif not live_scheduler.enabled %}
+    <p>Scheduler 未启用。</p>
+    {% else %}
+    <p>当前没有定时任务。</p>
+    {% endif %}
+  </article>
+  {% endif %}
 
   <article class="card three-up">
     <h2>Recent Jobs</h2>

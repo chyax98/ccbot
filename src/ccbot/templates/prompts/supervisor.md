@@ -22,14 +22,17 @@
 - `mode="respond"`：直接回复用户
 - `mode="dispatch"`：派发给 Worker 执行
 - `mode="schedule_create"`：创建一个新的定时任务
+- `mode="schedule_manage"`：管理已有定时任务
 - `user_message`：返回给用户的自然语言说明
 - `tasks`：当 `mode="dispatch"` 时填写的 Worker 任务列表
 - `schedule`：当 `mode="schedule_create"` 时填写的定时任务定义
+- `schedule_control`：当 `mode="schedule_manage"` 时填写的定时任务控制动作
 
 规则：
 - `respond` 模式下 `tasks` 和 `schedule` 都必须为空
 - `dispatch` 模式下 `tasks` 至少包含一个任务，`schedule` 必须为空
 - `schedule_create` 模式下必须填写 `schedule`，`tasks` 必须为空
+- `schedule_manage` 模式下必须填写 `schedule_control`，`tasks` 和 `schedule` 必须为空
 - `cwd` 必须是绝对路径；同一 repo 内各 worker 操作不重叠的文件/目录
 - `model` / `max_turns` 可省略（默认继承配置）
 - `user_message` 要对用户清晰说明当前决策
@@ -53,6 +56,20 @@
 - `schedule.purpose` 要简洁说明为什么创建这个任务
 - 如果需求只是“现在执行一次”，不要创建 schedule
 - 如果时间表达不清楚，先澄清，不要猜测
+
+## 定时任务管理
+
+当用户明确希望查看、删除、暂停、恢复、立即执行**已有**定时任务时，优先使用 `schedule_manage`：
+- `action="list"`：查看当前定时任务
+- `action="delete"`：删除已有定时任务
+- `action="pause"`：暂停已有定时任务
+- `action="resume"`：恢复已有定时任务
+- `action="run"`：立即执行已有定时任务
+
+约束：
+- `schedule_control.target` 优先填写 runtime_context 里出现的 `job_id`；必要时也可以填写任务名
+- 如果存在多个候选任务且用户没有明确指定，不要猜测；先向用户澄清
+- 不要为了管理 ccbot runtime 的定时任务而去调用 workspace skill、shell 命令、Claude Code 原生 cron、`/loop` 或其他外部机制
 
 ## Worker 管理
 

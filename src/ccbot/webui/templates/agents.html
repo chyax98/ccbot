@@ -2,57 +2,196 @@
 {% block title %}ccbot agents{% endblock %}
 {% block content %}
 <section class="grid">
+  <article class="card">
+    <h2>Agent Surface</h2>
+    <p>ccbot 不是单个 prompt。它由 `Supervisor orchestration`、`Worker execution`、`workspace skills`、`MCP servers` 和 `tool policy` 共同构成。这个页面按运行时语义拆解，而不是按文件名堆表格。</p>
+    <div class="stats">
+      <div class="stat">
+        <strong>{{ agent_surface.stats.skills_count }}</strong>
+        <span class="muted">installed skills</span>
+      </div>
+      <div class="stat">
+        <strong>{{ agent_surface.stats.always_on_skills }}</strong>
+        <span class="muted">always-on skills</span>
+      </div>
+      <div class="stat">
+        <strong>{{ agent_surface.stats.mcp_count }}</strong>
+        <span class="muted">configured MCP servers</span>
+      </div>
+      <div class="stat">
+        <strong>{{ agent_surface.stats.policy_block_count }}</strong>
+        <span class="muted">blocked tools from policy</span>
+      </div>
+    </div>
+  </article>
+
+  <article class="card">
+    <h2>Runtime Flow</h2>
+    <div class="flow-grid">
+      {% for step in agent_surface.architecture_steps %}
+      <div class="flow-step">
+        <strong>{{ loop.index }}. {{ step.title }}</strong>
+        <p>{{ step.detail }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+
+  {% for role in agent_surface.roles %}
+  <article class="card three-up">
+    <h2>{{ role.name }}</h2>
+    <p><span class="tag">{{ role.chip }}</span></p>
+    <p>{{ role.summary }}</p>
+    <ul>
+      {% for point in role.points %}
+      <li>{{ point }}</li>
+      {% endfor %}
+    </ul>
+  </article>
+  {% endfor %}
+
   <article class="card two-up">
-    <h2>Agent Prompt And Skill Files</h2>
-    {% if agent_files %}
-    <table>
-      <thead>
-        <tr>
-          <th>Kind</th>
-          <th>File</th>
-          <th>Preview</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for item in agent_files %}
-        <tr>
-          <td><span class="tag">{{ item.kind }}</span></td>
-          <td>
-            <a class="button secondary" href="{{ request.url_for('file_preview') }}?path={{ item.path | urlencode }}">Open</a><br /><br />
-            <code>{{ item.path }}</code>
-          </td>
-          <td><div class="code-box"><pre>{{ item.preview }}</pre></div></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p>当前没有发现可展示的 prompt / skill 文件。</p>
-    {% endif %}
+    <h2>Prompt Stack</h2>
+    <p>Prompt 真正生效时是“层叠”的：runtime 注入状态，再叠加 supervisor / worker prompt，再加 workspace 的 `.claude` 规则和 settings 限制。</p>
+    <div class="stack-list">
+      {% for layer in agent_surface.prompt_layers %}
+      <div class="stack-item">
+        <div>
+          <span class="tag">{{ layer.lane }}</span>
+          <strong>{{ layer.title }}</strong>
+          <div class="muted">{{ layer.summary }}</div>
+        </div>
+        <div>
+          <span class="tag">{{ layer.kind }}</span>
+          {% if layer.path %}
+          <a class="button secondary" href="{{ request.url_for('file_preview') }}?path={{ layer.path | urlencode }}">Open</a>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
   </article>
 
   <article class="card two-up">
-    <h2>MCP / External Skills Surface</h2>
-    {% if mcp_servers %}
-    <table>
-      <thead>
-        <tr>
-          <th>Server</th>
-          <th>Config</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for name, payload in mcp_servers.items() %}
-        <tr>
-          <td><strong>{{ name }}</strong></td>
-          <td><div class="code-box"><pre>{{ payload | tojson(indent=2) }}</pre></div></td>
-        </tr>
+    <h2>Tool Policy</h2>
+    <p>这些 settings 文件定义了 Claude Code 层面的工具边界。当前配置里最关键的是禁止原生 `Agent / SendMessage`，确保多 Agent 调度始终回到 ccbot runtime。</p>
+    {% if agent_surface.tool_policies %}
+    {% for policy in agent_surface.tool_policies %}
+    <div class="code-box" style="margin-bottom: 12px;">
+      <strong>{{ policy.name }}</strong>
+      <div class="muted"><code>{{ policy.path }}</code></div>
+      <p>
+        {% for tool in policy.disallowed_tools %}
+        <span class="tag">{{ tool }}</span>
         {% endfor %}
-      </tbody>
-    </table>
+      </p>
+      <a class="button secondary" href="{{ request.url_for('file_preview') }}?path={{ policy.path | urlencode }}">Open settings</a>
+    </div>
+    {% endfor %}
     {% else %}
-    <p>当前没有配置 MCP servers。这个页面先作为 agents / skills 的清单视图。</p>
+    <p>未发现 `.claude/settings.json`。</p>
     {% endif %}
+  </article>
+
+  <article class="card">
+    <h2>Skill Catalog</h2>
+    <p>Skills 是“提示词级能力包”，适合固化知识和工作流。它们不直接持有 runtime state，但会显著影响 Supervisor / Worker 的决策路径。</p>
+    {% if agent_surface.always_skills %}
+    <h3>Always-On Skills</h3>
+    <div class="skill-grid" style="margin-bottom: 18px;">
+      {% for skill in agent_surface.always_skills %}
+      <div class="skill-card">
+        <div class="skill-head">
+          <strong>{{ skill.emoji }} {{ skill.name }}</strong>
+          <span class="tag">always</span>
+        </div>
+        <p>{{ skill.description }}</p>
+        <div class="code-box"><pre>{{ skill.preview }}</pre></div>
+        <p><a class="button secondary" href="{{ request.url_for('file_preview') }}?path={{ skill.path | urlencode }}">Open skill</a></p>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if agent_surface.catalog_skills %}
+    <h3>On-Demand Skills</h3>
+    <div class="skill-grid">
+      {% for skill in agent_surface.catalog_skills %}
+      <div class="skill-card">
+        <div class="skill-head">
+          <strong>{{ skill.emoji }} {{ skill.name }}</strong>
+          <span class="tag">skill</span>
+        </div>
+        <p>{{ skill.description }}</p>
+        {% if skill.bins %}
+        <p class="muted">requires: {% for bin in skill.bins %}<code>{{ bin }}</code> {% endfor %}</p>
+        {% endif %}
+        <div class="code-box"><pre>{{ skill.preview }}</pre></div>
+        <p><a class="button secondary" href="{{ request.url_for('file_preview') }}?path={{ skill.path | urlencode }}">Open skill</a></p>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if not agent_surface.skills %}
+    <p>当前没有安装 skill。</p>
+    {% endif %}
+  </article>
+
+  <article class="card">
+    <h2>MCP Servers</h2>
+    <p>MCP 是运行时接入面，适合连接外部文档、数据库、浏览器或内部服务。它和 skill 不同，skill 决定“怎么做”，MCP 决定“能连到什么”。</p>
+    {% if agent_surface.mcp_servers %}
+    <div class="skill-grid">
+      {% for server in agent_surface.mcp_servers %}
+      <div class="skill-card">
+        <div class="skill-head">
+          <strong>{{ server.name }}</strong>
+          <span class="tag">{{ server.transport }}</span>
+        </div>
+        <p class="muted">{{ server.endpoint or "No explicit endpoint" }}</p>
+        {% if server.env_keys %}
+        <p class="muted">env: {% for key in server.env_keys %}<code>{{ key }}</code> {% endfor %}</p>
+        {% endif %}
+        <p class="muted">keys: {% for key in server.keys %}<code>{{ key }}</code> {% endfor %}</p>
+        <div class="code-box"><pre>{{ server.raw }}</pre></div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p>当前没有配置 MCP server。等你在 `agent.mcp_servers` 里接入后，这里会展示 transport、endpoint 和所需 env。</p>
+    {% endif %}
+  </article>
+
+  <article class="card">
+    <h2>Control Planes</h2>
+    <p>如果一个能力放错位置，ccbot 会很快变得难维护。这一块是页面里最重要的“放置建议”。</p>
+    <div class="skill-grid">
+      {% for plane in agent_surface.control_planes %}
+      <div class="skill-card">
+        <div class="skill-head">
+          <strong>{{ plane.name }}</strong>
+          <span class="tag">control plane</span>
+        </div>
+        <p>{{ plane.purpose }}</p>
+        <p class="muted">storage: <code>{{ plane.storage }}</code></p>
+        <div class="code-box"><pre>{{ plane.effect }}</pre></div>
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+
+  <article class="card">
+    <h2>Operator Notes</h2>
+    <p>这一页主要解决“Agent 到底由什么组成”。真正的编辑入口仍然分散在其他页面，因为 ccbot 当前把文件系统作为 source of truth。</p>
+    <div class="actions">
+      <a class="button secondary" href="{{ request.url_for('config_page') }}">Open config</a>
+      <a class="button secondary" href="{{ request.url_for('env_page') }}">Open env</a>
+      <a class="button secondary" href="{{ request.url_for('scheduler_page') }}">Open scheduler</a>
+    </div>
+    <ul>
+      <li>想扩展 Agent 行为，优先新增或改造 skill / prompt，而不是把大量固定流程塞回 system prompt。</li>
+      <li>想接外部系统，优先落到 MCP；想沉淀工作方法，优先落到 skill。</li>
+      <li>想调整顶层运行策略，则改 `config.json` 和 workspace `.claude` 文件。</li>
+    </ul>
   </article>
 </section>
 {% endblock %}

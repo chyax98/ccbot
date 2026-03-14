@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -580,3 +581,58 @@ async def test_invalid_structured_output_returns_friendly_error(team: AgentTeam)
     reply = await team.ask("chat1", "创建一个坏掉的定时任务")
 
     assert reply == "Supervisor 返回了无效的结构化结果，请重试。"
+
+
+@pytest.mark.asyncio
+async def test_schedule_manage_delete_routes_to_scheduler(team: AgentTeam) -> None:
+    team._supervisor = _mock_agent(
+        "",
+        {
+            "mode": "schedule_manage",
+            "user_message": "我来删除这个定时任务。",
+            "schedule_control": {
+                "action": "delete",
+                "target": "job-1",
+            },
+        },
+    )
+    scheduler = MagicMock()
+    scheduler.list_jobs.return_value = [
+        SimpleNamespace(job_id="job-1", name="日报提醒"),
+    ]
+    scheduler.format_status.return_value = ""
+    scheduler.delete_job.return_value = True
+    team.set_scheduler(scheduler)
+
+    reply = await team.ask("chat1", "删掉定时任务")
+
+    assert reply == "我来删除这个定时任务。\n\n已删除定时任务: 日报提醒 (job-1)"
+    scheduler.delete_job.assert_called_once_with("job-1")
+
+
+@pytest.mark.asyncio
+async def test_schedule_manage_requires_explicit_target_when_ambiguous(team: AgentTeam) -> None:
+    team._supervisor = _mock_agent(
+        "",
+        {
+            "mode": "schedule_manage",
+            "user_message": "",
+            "schedule_control": {
+                "action": "delete",
+                "target": "review",
+            },
+        },
+    )
+    scheduler = MagicMock()
+    scheduler.list_jobs.return_value = [
+        SimpleNamespace(job_id="job-1", name="每日项目Review提醒"),
+        SimpleNamespace(job_id="job-2", name="每日项目Review提醒-多Worker版"),
+    ]
+    scheduler.format_status.return_value = ""
+    team.set_scheduler(scheduler)
+
+    reply = await team.ask("chat1", "删掉 review 定时任务")
+
+    assert "找到多个候选定时任务" in reply
+    assert "job-1" in reply
+    assert "job-2" in reply

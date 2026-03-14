@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -19,6 +20,8 @@ from ccbot.observability import get_langsmith_status
 if TYPE_CHECKING:
     from ccbot.channels.base import Channel
     from ccbot.config import Config
+    from ccbot.scheduler import SchedulerService
+    from ccbot.team import AgentTeam
     from ccbot.workspace import WorkspaceManager
 
 app = typer.Typer(
@@ -228,6 +231,10 @@ def run(
         str,
         typer.Option("--channel", help="通道类型（feishu|cli）"),
     ] = "feishu",
+    web_port: Annotated[
+        int,
+        typer.Option("--web-port", help="嵌入 Web 控制台端口（0 = 关闭）"),
+    ] = 8787,
 ) -> None:
     """启动机器人（Supervisor+Worker 多 Agent 模式）。"""
     from ccbot.channels.base import IncomingMessage
@@ -299,13 +306,18 @@ def run(
     )
     team.set_scheduler(scheduler)
 
+    web_info = ""
+    if web_port > 0:
+        web_info = f"\nWeb 控制台: [cyan]http://127.0.0.1:{web_port}[/cyan]"
+
     console.print(
         Panel(
             f"{__logo__} 启动 {channel_type} 机器人 (Supervisor+Worker)\n"
             f"Channel: [cyan]{channel_type}[/cyan]\n"
             f"Model:   [cyan]{config.agent.model or 'default'}[/cyan]\n"
             f"Workspace: [cyan]{workspace.path}[/cyan]\n"
-            f"LangSmith: [cyan]{_format_langsmith_status(langsmith_status)}[/cyan]",
+            f"LangSmith: [cyan]{_format_langsmith_status(langsmith_status)}[/cyan]"
+            f"{web_info}",
             border_style="cyan",
         )
     )
@@ -313,6 +325,7 @@ def run(
     async def main() -> None:
         await team.start()
         heartbeat = None
+        web_server: asyncio.Task[None] | None = None
         try:
             if config.agent.scheduler_enabled:
                 await scheduler.start()
@@ -324,9 +337,21 @@ def run(
                     interval_s=config.agent.heartbeat_interval,
                 )
                 await heartbeat.start()
+
+            # 嵌入 Web 控制台
+            if web_port > 0:
+                web_server = asyncio.create_task(
+                    _run_embedded_web(config_path, team, scheduler, web_port),
+                    name="embedded-web-console",
+                )
+
             await channel.start()
             await channel.wait_closed()
         finally:
+            if web_server is not None:
+                web_server.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await web_server
             if heartbeat is not None:
                 heartbeat.stop()
             if config.agent.scheduler_enabled:
@@ -362,3 +387,22 @@ def web(
         )
     )
     uvicorn.run(app_instance, host=host, port=port, log_level="info")
+
+
+async def _run_embedded_web(
+    config_path: Path,
+    team: AgentTeam,
+    scheduler: SchedulerService,
+    port: int,
+) -> None:
+    """在 ccbot run 进程内以后台 task 运行 Web 控制台。"""
+    import uvicorn
+
+    from ccbot.webui import create_app
+
+    web_app = create_app(config_path, team=team, scheduler=scheduler)
+    server_config = uvicorn.Config(
+        web_app, host="127.0.0.1", port=port, log_level="warning"
+    )
+    server = uvicorn.Server(server_config)
+    await server.serve()

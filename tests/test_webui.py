@@ -93,4 +93,78 @@ def test_webui_saves_config_and_env(tmp_path: Path) -> None:
 
     agents_response = client.get("/agents")
     assert agents_response.status_code == 200
-    assert "supervisor.md" in agents_response.text
+    assert "Prompt Stack" in agents_response.text
+    assert "Skill Catalog" in agents_response.text
+
+
+def test_webui_api_status_standalone(tmp_path: Path) -> None:
+    """独立模式下 /api/status 返回 embedded=False。"""
+    workspace = WorkspaceManager(tmp_path / "workspace")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"agent": {"workspace": str(workspace.path)}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    client = TestClient(create_app(config_path))
+    response = client.get("/api/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["embedded"] is False
+    assert data["workers"] == []
+    assert data["scheduler"]["enabled"] is False
+
+
+def test_webui_runtime_api_requires_embedded(tmp_path: Path) -> None:
+    """独立模式下运行时 API 返回 503。"""
+    workspace = WorkspaceManager(tmp_path / "workspace")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"agent": {"workspace": str(workspace.path)}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    client = TestClient(create_app(config_path))
+    assert client.get("/api/workers").status_code == 503
+    assert client.get("/api/scheduler/jobs").status_code == 503
+    assert client.post("/api/workers/test/interrupt").status_code == 503
+    assert client.post("/api/scheduler/abc/run").status_code == 503
+
+
+def test_webui_dashboard_embedded_mode(tmp_path: Path) -> None:
+    """嵌入模式下 dashboard 渲染 Runtime Status。"""
+    workspace = WorkspaceManager(tmp_path / "workspace")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"agent": {"workspace": str(workspace.path)}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    async def _noop_execute(job):  # type: ignore[no-untyped-def]
+        return ""
+
+    async def _noop_notify(job, content):  # type: ignore[no-untyped-def]
+        pass
+
+    scheduler = SchedulerService(workspace.path, _noop_execute, _noop_notify)
+
+    # 使用 mock team 测试嵌入模式
+    from unittest.mock import MagicMock
+
+    mock_team = MagicMock()
+    mock_team.worker_pool.list_workers.return_value = []
+
+    client = TestClient(
+        create_app(config_path, team=mock_team, scheduler=scheduler)
+    )
+
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "embedded" in response.text
+    assert "Runtime Status" in response.text
+
+    # API 可用
+    status = client.get("/api/status").json()
+    assert status["embedded"] is True
+    assert status["scheduler"]["enabled"] is True
+
+    workers = client.get("/api/workers").json()
+    assert workers == []

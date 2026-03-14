@@ -17,6 +17,7 @@ from ccbot.memory import MemoryStore
 from ccbot.models import (
     DispatchPayload,
     DispatchResult,
+    ScheduleControl,
     ScheduleSpec,
     SupervisorResponse,
     WorkerResult,
@@ -201,6 +202,13 @@ class AgentTeam:
                 structured_response.user_message,
                 request_context=request_context,
             )
+        elif structured_response.mode == "schedule_manage":
+            if structured_response.schedule_control is None:
+                return structured_response.user_message or "无法管理定时任务：缺少控制参数。"
+            return await self._manage_schedule(
+                structured_response.schedule_control,
+                structured_response.user_message,
+            )
         else:
             dispatch = structured_response.dispatch_payload
             user_message = structured_response.user_message
@@ -283,6 +291,89 @@ class AgentTeam:
         if user_message:
             return f"{user_message}\n\n{summary}"
         return summary
+
+    async def _manage_schedule(self, control: ScheduleControl, user_message: str) -> str:
+        if self._scheduler is None:
+            return "当前运行模式未启用 Scheduler。"
+
+        if control.action == "list":
+            status = self._scheduler.format_status()
+            if user_message and status:
+                return f"{user_message}\n\n{status}"
+            return user_message or status or "当前没有定时任务。"
+
+        target_job, error = self._resolve_schedule_target(control.target)
+        if target_job is None:
+            return user_message or error or "未找到目标定时任务。"
+
+        if control.action == "delete":
+            deleted = self._scheduler.delete_job(target_job.job_id)
+            if not deleted:
+                return f"删除失败，定时任务不存在: {target_job.job_id}"
+            summary = f"已删除定时任务: {target_job.name} ({target_job.job_id})"
+            return f"{user_message}\n\n{summary}" if user_message else summary
+
+        if control.action == "pause":
+            paused = self._scheduler.pause_job(target_job.job_id)
+            if not paused:
+                return f"暂停失败，定时任务不存在: {target_job.job_id}"
+            summary = f"已暂停定时任务: {target_job.name} ({target_job.job_id})"
+            return f"{user_message}\n\n{summary}" if user_message else summary
+
+        if control.action == "resume":
+            resumed = self._scheduler.resume_job(target_job.job_id)
+            if not resumed:
+                return f"恢复失败，定时任务不存在: {target_job.job_id}"
+            summary = f"已恢复定时任务: {target_job.name} ({target_job.job_id})"
+            return f"{user_message}\n\n{summary}" if user_message else summary
+
+        if control.action == "run":
+            result = await self._scheduler.run_job_now(target_job.job_id)
+            if result == "already_running":
+                summary = f"定时任务正在执行中: {target_job.name} ({target_job.job_id})"
+            elif result == "started":
+                summary = f"已触发定时任务: {target_job.name} ({target_job.job_id})"
+            else:
+                summary = f"定时任务不存在: {target_job.job_id}"
+            return f"{user_message}\n\n{summary}" if user_message else summary
+
+        return user_message or "暂不支持的定时任务操作。"
+
+    def _resolve_schedule_target(self, target: str) -> tuple[Any | None, str | None]:
+        if self._scheduler is None:
+            return None, "当前运行模式未启用 Scheduler。"
+
+        jobs = self._scheduler.list_jobs()
+        if not jobs:
+            return None, "当前没有定时任务。"
+
+        if not target:
+            if len(jobs) == 1:
+                return jobs[0], None
+            return None, self._format_schedule_selection_error(jobs)
+
+        exact_id = next((job for job in jobs if job.job_id == target), None)
+        if exact_id is not None:
+            return exact_id, None
+
+        exact_name = next((job for job in jobs if job.name == target), None)
+        if exact_name is not None:
+            return exact_name, None
+
+        fuzzy_matches = [
+            job for job in jobs if job.job_id.startswith(target) or target.lower() in job.name.lower()
+        ]
+        if len(fuzzy_matches) == 1:
+            return fuzzy_matches[0], None
+        if len(fuzzy_matches) > 1:
+            return None, self._format_schedule_selection_error(fuzzy_matches)
+        return None, self._format_schedule_selection_error(jobs)
+
+    @staticmethod
+    def _format_schedule_selection_error(jobs: list[Any]) -> str:
+        choices = "\n".join(f"- {job.job_id} {job.name}" for job in jobs[:5])
+        suffix = "\n请明确指定 job_id 或任务名。" if choices else ""
+        return f"找到多个候选定时任务：\n{choices}{suffix}"
 
     async def _run_workers(
         self,
