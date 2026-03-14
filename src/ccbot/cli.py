@@ -213,7 +213,12 @@ def _create_channel(
                 "飞书 App ID 和 App Secret 未配置，请在配置文件中设置或使用环境变量 "
                 "CCBOT_FEISHU__APP_ID / CCBOT_FEISHU__APP_SECRET"
             )
-        return FeishuChannel(config.feishu, output_dir=workspace.output_dir)
+        return FeishuChannel(
+            config.feishu,
+            output_dir=workspace.output_dir,
+            dedup_dir=workspace.dedup_dir,
+            tmp_dir=workspace.tmp_dir,
+        )
     if channel_type == "cli":
         from ccbot.channels.cli import CLIChannel
 

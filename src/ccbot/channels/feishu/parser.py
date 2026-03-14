@@ -48,7 +48,7 @@ async def extract_content(event: dict, client: Any = None, *, tmp_dir: Path | No
     if msg_type == "image":
         image_key = content_json.get("image_key", "")
         if image_key and message_id and client:
-            path = await download_resource(client, message_id, image_key, "image")
+            path = await download_resource(client, message_id, image_key, "image", tmp_dir=tmp_dir)
             if path:
                 return f"[图片已下载，路径: {path}，请用 Read 工具查看]"
         return "[图片（下载失败）]"
@@ -57,7 +57,9 @@ async def extract_content(event: dict, client: Any = None, *, tmp_dir: Path | No
         file_key = content_json.get("file_key", "")
         file_name = content_json.get("file_name", "file")
         if file_key and message_id and client:
-            path = await download_resource(client, message_id, file_key, "file", file_name)
+            path = await download_resource(
+                client, message_id, file_key, "file", file_name, tmp_dir=tmp_dir
+            )
             if path:
                 return f"[文件 '{file_name}' 已下载，路径: {path}，可用 Read/Bash 工具处理]"
         return f"[文件 '{file_name}'（下载失败）]"
@@ -99,6 +101,8 @@ async def download_resource(
     file_key: str,
     resource_type: str,
     file_name: str = "",
+    *,
+    tmp_dir: Path | None = None,
 ) -> str | None:
     """下载飞书消息资源（图片/文件），返回本地文件路径。
 
@@ -108,6 +112,7 @@ async def download_resource(
         file_key: 文件 key
         resource_type: 资源类型（"image" 或 "file"）
         file_name: 文件名（可选）
+        tmp_dir: 临时文件目录，None 时使用默认 ~/.ccbot/tmp
 
     Returns:
         本地文件路径，失败返回 None
@@ -132,7 +137,8 @@ async def download_resource(
             return None
 
         # 确保 tmp 目录存在
-        tmp_dir = Path.home() / ".ccbot" / "tmp"
+        if tmp_dir is None:
+            tmp_dir = Path.home() / ".ccbot" / "tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         # 清理 24h 前的旧文件

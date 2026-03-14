@@ -79,10 +79,19 @@ class FeishuChannel(Channel):
     def build_responder(self, message: IncomingMessage) -> FeishuResponder:
         return FeishuResponder(self, message)
 
-    def __init__(self, config: FeishuConfig, *, output_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        config: FeishuConfig,
+        *,
+        output_dir: Path | None = None,
+        dedup_dir: Path | None = None,
+        tmp_dir: Path | None = None,
+    ) -> None:
         super().__init__()
         self.config = config
         self._output_dir = output_dir
+        self._dedup_dir = dedup_dir or Path.home() / ".ccbot" / "dedup"
+        self._tmp_dir = tmp_dir
 
         # Pipeline 组件
         self._dedup = DedupCache(ttl_ms=24 * 60 * 60 * 1000, max_size=1000)
@@ -216,7 +225,7 @@ class FeishuChannel(Channel):
             return ""
 
         # 提取内容（委托给 parser 模块，支持图片/文件下载）
-        content = await extract_content(event, client=self._client)
+        content = await extract_content(event, client=self._client, tmp_dir=self._tmp_dir)
         if not content:
             return ""
 
@@ -416,7 +425,7 @@ class FeishuChannel(Channel):
         await self._fetch_bot_open_id()
 
         # 加载持久化的 dedup 数据
-        await self._dedup.load(Path.home() / ".ccbot" / "dedup", "feishu")
+        await self._dedup.load(self._dedup_dir, "feishu")
 
         event_handler = (
             lark.EventDispatcherHandler.builder(
@@ -484,7 +493,7 @@ class FeishuChannel(Channel):
         await self._debounce.stop()
         await self._queue.stop()
 
-        await self._dedup.persist(Path.home() / ".ccbot" / "dedup", "feishu")
+        await self._dedup.persist(self._dedup_dir, "feishu")
 
         if self._stopped_event:
             self._stopped_event.set()
