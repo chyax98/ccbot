@@ -167,7 +167,9 @@ class SchedulerService:
                 setattr(existing, field_name, value)
                 changed = True
 
-        if changed and (previous_cron != existing.cron_expr or previous_timezone != existing.timezone):
+        if changed and (
+            previous_cron != existing.cron_expr or previous_timezone != existing.timezone
+        ):
             existing.next_run_at = self._compute_next_run(
                 existing.cron_expr, existing.timezone
             ).isoformat()

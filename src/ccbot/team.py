@@ -17,13 +17,12 @@ from ccbot.memory import MemoryStore
 from ccbot.models import (
     DispatchPayload,
     DispatchResult,
-    ScheduleControl,
-    ScheduleSpec,
     SupervisorResponse,
     WorkerResult,
     WorkerTask,
 )
 from ccbot.runtime.profiles import RuntimeRole
+from ccbot.runtime.tools import create_runtime_tools
 from ccbot.runtime.worker_pool import WorkerPool
 from ccbot.scheduler import SchedulerService
 from ccbot.workspace import WorkspaceManager
@@ -64,12 +63,19 @@ class AgentTeam:
         )
         self._worker_pool = WorkerPool(config)
         self._scheduler: SchedulerService | None = None
+        self._last_request_context: dict[str, Any] = {}
         self._background_tasks: set[asyncio.Task[None]] = set()
         self._background_tasks_by_chat: dict[str, set[asyncio.Task[None]]] = {}
         self._background_task_workers: dict[asyncio.Task[None], frozenset[str]] = {}
 
     def set_scheduler(self, scheduler: SchedulerService) -> None:
         self._scheduler = scheduler
+        # 创建 runtime tools 并注入 Supervisor 的 SDK MCP servers
+        sdk_server = create_runtime_tools(
+            scheduler,
+            get_context=lambda: self._last_request_context,
+        )
+        self._supervisor.set_sdk_mcp_servers({sdk_server["name"]: sdk_server})
 
     async def start(self) -> None:
         await self._supervisor.start()
@@ -150,6 +156,9 @@ class AgentTeam:
         if control_reply is not None:
             return control_reply
 
+        # 保存请求上下文，供 runtime tools 的 get_context 回调使用
+        self._last_request_context = request_context or {}
+
         # 当前日期始终注入：保留基础时间语义，同时降低分钟级抖动对 KV cache 的影响
         current_date = datetime.now().strftime("%Y-%m-%d (%A)")
         context_parts = [f"Current date: {current_date}"]
@@ -193,22 +202,6 @@ class AgentTeam:
             user_message = _extract_pre_dispatch_text(supervisor_reply)
         elif structured_response.mode == "respond":
             return structured_response.user_message or supervisor_reply
-        elif structured_response.mode == "schedule_create":
-            if structured_response.schedule is None:
-                return structured_response.user_message or "无法创建定时任务：缺少任务定义。"
-            return self._create_schedule(
-                chat_id,
-                structured_response.schedule,
-                structured_response.user_message,
-                request_context=request_context,
-            )
-        elif structured_response.mode == "schedule_manage":
-            if structured_response.schedule_control is None:
-                return structured_response.user_message or "无法管理定时任务：缺少控制参数。"
-            return await self._manage_schedule(
-                structured_response.schedule_control,
-                structured_response.user_message,
-            )
         else:
             dispatch = structured_response.dispatch_payload
             user_message = structured_response.user_message
@@ -252,128 +245,6 @@ class AgentTeam:
         if synthesis_response is not None and synthesis_response.mode == "respond":
             return synthesis_response.user_message or synthesis_result.text
         return synthesis_result.text
-
-    def _create_schedule(
-        self,
-        chat_id: str,
-        schedule: ScheduleSpec,
-        user_message: str,
-        *,
-        request_context: dict[str, Any] | None,
-    ) -> str:
-        if self._scheduler is None:
-            return "当前运行模式未启用 Scheduler，无法创建定时任务。"
-
-        channel = str((request_context or {}).get("channel", ""))
-        notify_target = str((request_context or {}).get("notify_target", chat_id))
-        created_by = str((request_context or {}).get("sender_id", ""))
-        conversation_id = str((request_context or {}).get("conversation_id", chat_id))
-
-        try:
-            job = self._scheduler.create_job(
-                schedule,
-                created_by=created_by,
-                channel=channel,
-                notify_target=notify_target,
-                conversation_id=conversation_id,
-            )
-        except Exception as exc:
-            logger.warning("创建定时任务失败 chat_id={}: {}", chat_id, exc)
-            return f"无法创建定时任务：{exc}"
-        summary = (
-            f"已创建定时任务：{job.name}\n"
-            f"- job_id: {job.job_id}\n"
-            f"- cron: {job.cron_expr}\n"
-            f"- timezone: {job.timezone}\n"
-            f"- next_run_at: {job.next_run_at}\n"
-            f"- notify_target: {job.notify_target or chat_id}"
-        )
-        if user_message:
-            return f"{user_message}\n\n{summary}"
-        return summary
-
-    async def _manage_schedule(self, control: ScheduleControl, user_message: str) -> str:
-        if self._scheduler is None:
-            return "当前运行模式未启用 Scheduler。"
-
-        if control.action == "list":
-            status = self._scheduler.format_status()
-            if user_message and status:
-                return f"{user_message}\n\n{status}"
-            return user_message or status or "当前没有定时任务。"
-
-        target_job, error = self._resolve_schedule_target(control.target)
-        if target_job is None:
-            return user_message or error or "未找到目标定时任务。"
-
-        if control.action == "delete":
-            deleted = self._scheduler.delete_job(target_job.job_id)
-            if not deleted:
-                return f"删除失败，定时任务不存在: {target_job.job_id}"
-            summary = f"已删除定时任务: {target_job.name} ({target_job.job_id})"
-            return f"{user_message}\n\n{summary}" if user_message else summary
-
-        if control.action == "pause":
-            paused = self._scheduler.pause_job(target_job.job_id)
-            if not paused:
-                return f"暂停失败，定时任务不存在: {target_job.job_id}"
-            summary = f"已暂停定时任务: {target_job.name} ({target_job.job_id})"
-            return f"{user_message}\n\n{summary}" if user_message else summary
-
-        if control.action == "resume":
-            resumed = self._scheduler.resume_job(target_job.job_id)
-            if not resumed:
-                return f"恢复失败，定时任务不存在: {target_job.job_id}"
-            summary = f"已恢复定时任务: {target_job.name} ({target_job.job_id})"
-            return f"{user_message}\n\n{summary}" if user_message else summary
-
-        if control.action == "run":
-            result = await self._scheduler.run_job_now(target_job.job_id)
-            if result == "already_running":
-                summary = f"定时任务正在执行中: {target_job.name} ({target_job.job_id})"
-            elif result == "started":
-                summary = f"已触发定时任务: {target_job.name} ({target_job.job_id})"
-            else:
-                summary = f"定时任务不存在: {target_job.job_id}"
-            return f"{user_message}\n\n{summary}" if user_message else summary
-
-        return user_message or "暂不支持的定时任务操作。"
-
-    def _resolve_schedule_target(self, target: str) -> tuple[Any | None, str | None]:
-        if self._scheduler is None:
-            return None, "当前运行模式未启用 Scheduler。"
-
-        jobs = self._scheduler.list_jobs()
-        if not jobs:
-            return None, "当前没有定时任务。"
-
-        if not target:
-            if len(jobs) == 1:
-                return jobs[0], None
-            return None, self._format_schedule_selection_error(jobs)
-
-        exact_id = next((job for job in jobs if job.job_id == target), None)
-        if exact_id is not None:
-            return exact_id, None
-
-        exact_name = next((job for job in jobs if job.name == target), None)
-        if exact_name is not None:
-            return exact_name, None
-
-        fuzzy_matches = [
-            job for job in jobs if job.job_id.startswith(target) or target.lower() in job.name.lower()
-        ]
-        if len(fuzzy_matches) == 1:
-            return fuzzy_matches[0], None
-        if len(fuzzy_matches) > 1:
-            return None, self._format_schedule_selection_error(fuzzy_matches)
-        return None, self._format_schedule_selection_error(jobs)
-
-    @staticmethod
-    def _format_schedule_selection_error(jobs: list[Any]) -> str:
-        choices = "\n".join(f"- {job.job_id} {job.name}" for job in jobs[:5])
-        suffix = "\n请明确指定 job_id 或任务名。" if choices else ""
-        return f"找到多个候选定时任务：\n{choices}{suffix}"
 
     async def _run_workers(
         self,

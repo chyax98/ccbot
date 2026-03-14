@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# 自动修复：ruff fix + format（不阻断提交）
+set -e
+
+uv run ruff check --fix src/ tests/ 2>/dev/null || true
+uv run ruff format src/ tests/ 2>/dev/null || true
+
+# 将修复后的文件重新加入暂存区
+git diff --name-only | xargs -r git add

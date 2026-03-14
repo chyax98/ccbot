@@ -46,6 +46,7 @@ class CCBotAgent:
         output_format: dict[str, object] | None = None,
         role: RuntimeRole = RuntimeRole.SUPERVISOR,
         memory_store: MemoryStore | None = None,
+        sdk_mcp_servers: dict[str, object] | None = None,
     ) -> None:
         self._config = config
         self._workspace = workspace
@@ -62,9 +63,14 @@ class CCBotAgent:
             output_format=output_format,
             role=role,
             memory_store=memory_store,
+            sdk_mcp_servers=sdk_mcp_servers,
         )
         self._locks: dict[str, asyncio.Lock] = {}
         self.last_chat_id: str | None = None
+
+    def set_sdk_mcp_servers(self, servers: dict[str, object]) -> None:
+        """延迟注入 SDK MCP servers。"""
+        self._pool.set_sdk_mcp_servers(servers)
 
     async def start(self) -> None:
         await self._pool.start()
@@ -137,9 +143,7 @@ class CCBotAgent:
                     # SDK 返回 is_error（如 resume 会话与当前模型不兼容），
                     # 清除 stale session 后冷启动重试一次
                     if result.is_error and attempt == 0:
-                        logger.warning(
-                            "[{}] SDK 返回 is_error，清除 session 后冷启动重试", chat_id
-                        )
+                        logger.warning("[{}] SDK 返回 is_error，清除 session 后冷启动重试", chat_id)
                         await self._close_session(chat_id)
                         if self._memory_store is not None and self._role == RuntimeRole.SUPERVISOR:
                             self._memory_store.set_runtime_session(chat_id, "")

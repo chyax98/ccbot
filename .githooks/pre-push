@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# 完整 CI：lint + typecheck + test
+set -e
+
+echo "🚀 pre-push: 运行完整 CI..."
+
+uv run ruff check src/ tests/
+uv run ruff format --check src/ tests/
+uv run mypy src/ccbot/
+uv run pytest tests/ -v --tb=short
+
+echo "✅ pre-push CI 全部通过"

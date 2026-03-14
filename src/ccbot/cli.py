@@ -401,8 +401,6 @@ async def _run_embedded_web(
     from ccbot.webui import create_app
 
     web_app = create_app(config_path, team=team, scheduler=scheduler)
-    server_config = uvicorn.Config(
-        web_app, host="127.0.0.1", port=port, log_level="warning"
-    )
+    server_config = uvicorn.Config(web_app, host="127.0.0.1", port=port, log_level="warning")
     server = uvicorn.Server(server_config)
     await server.serve()

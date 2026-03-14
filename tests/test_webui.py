@@ -83,7 +83,11 @@ def test_webui_saves_config_and_env(tmp_path: Path) -> None:
 
     env_response = client.post(
         "/env",
-        data={"env_json": json.dumps({"ANTHROPIC_BASE_URL": "https://example.com"}, ensure_ascii=False)},
+        data={
+            "env_json": json.dumps(
+                {"ANTHROPIC_BASE_URL": "https://example.com"}, ensure_ascii=False
+            )
+        },
         follow_redirects=False,
     )
     assert env_response.status_code == 303
@@ -152,9 +156,7 @@ def test_webui_dashboard_embedded_mode(tmp_path: Path) -> None:
     mock_team = MagicMock()
     mock_team.worker_pool.list_workers.return_value = []
 
-    client = TestClient(
-        create_app(config_path, team=mock_team, scheduler=scheduler)
-    )
+    client = TestClient(create_app(config_path, team=mock_team, scheduler=scheduler))
 
     response = client.get("/")
     assert response.status_code == 200

@@ -49,6 +49,7 @@ class AgentPool:
         output_format: dict[str, Any] | None = None,
         role: RuntimeRole = RuntimeRole.SUPERVISOR,
         memory_store: MemoryStore | None = None,
+        sdk_mcp_servers: dict[str, Any] | None = None,
     ) -> None:
         self._config = config
         self._workspace = workspace
@@ -57,6 +58,7 @@ class AgentPool:
         self._output_format = output_format
         self._role = role
         self._memory_store = memory_store
+        self._sdk_mcp_servers = sdk_mcp_servers or {}
 
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._last_used: dict[str, float] = {}
@@ -64,6 +66,10 @@ class AgentPool:
         self._cleanup_task: asyncio.Task[None] | None = None
         self._stderr_captures: dict[str, object] = {}
         self._running = False
+
+    def set_sdk_mcp_servers(self, servers: dict[str, Any]) -> None:
+        """延迟注入 SDK MCP servers（在 scheduler 初始化后调用）。"""
+        self._sdk_mcp_servers.update(servers)
 
     async def start(self) -> None:
         if self._running:
@@ -110,7 +116,7 @@ class AgentPool:
         if client:
             await self._safe_disconnect(client, chat_id)
 
-    async def _safe_disconnect(self, client: "ClaudeSDKClient", chat_id: str) -> None:
+    async def _safe_disconnect(self, client: ClaudeSDKClient, chat_id: str) -> None:
         """安全断开 client，处理跨 task cancel scope 冲突。
 
         Claude SDK 内部使用 anyio cancel scope，当 disconnect() 在与 connect()
@@ -122,9 +128,7 @@ class AgentPool:
             logger.info("关闭 client: chat_id={}", chat_id)
         except BaseException as e:
             if "cancel scope" in str(e).lower():
-                logger.info(
-                    "关闭 client: chat_id={} (跨 task cancel scope，已释放引用)", chat_id
-                )
+                logger.info("关闭 client: chat_id={} (跨 task cancel scope，已释放引用)", chat_id)
             else:
                 logger.warning("关闭 client 出错: chat_id={} error={}", chat_id, e)
 
@@ -194,6 +198,12 @@ class AgentPool:
             allowed_tools=self._config.allowed_tools or None,
             output_format=self._output_format,
         )
+
+        # 合并进程内 SDK MCP server（如 runtime tools）
+        if self._sdk_mcp_servers:
+            mcp = kwargs.get("mcp_servers", {})
+            mcp.update(self._sdk_mcp_servers)
+            kwargs["mcp_servers"] = mcp
 
         if resume_session_id:
             kwargs["resume"] = resume_session_id

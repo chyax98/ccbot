@@ -148,7 +148,9 @@ class WorkerPool:
             actor = _WorkerActor(info=info, queue=queue, task=actor_task, ready=ready)
             self._actors[key] = actor
             self._info[key] = info
-            actor_task.add_done_callback(lambda done, worker_key=key: self._on_actor_done(worker_key, done))
+            actor_task.add_done_callback(
+                lambda done, worker_key=key: self._on_actor_done(worker_key, done)
+            )
 
         await ready
         logger.info(
@@ -272,9 +274,7 @@ class WorkerPool:
             label = info.name
             if owner_id is None and info.owner_id:
                 label = f"{info.name} [owner={info.owner_id}]"
-            lines.append(
-                f"- {label} ({status}): cwd={info.cwd}, 已执行 {info.task_count} 次任务"
-            )
+            lines.append(f"- {label} ({status}): cwd={info.cwd}, 已执行 {info.task_count} 次任务")
         lines.append("如需向已有 Worker 追加任务，使用相同 name 即可。")
         return "\n".join(lines)
 

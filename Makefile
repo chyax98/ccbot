@@ -1,4 +1,4 @@
-.PHONY: lint format typecheck test ci clean docker docker-up docker-down run web chat dev
+.PHONY: lint format typecheck test ci clean docker docker-up docker-down run web chat dev hooks hooks-uninstall
 
 # 静态检查
 lint:
@@ -47,6 +47,15 @@ docker-up:
 
 docker-down:
 	docker compose down
+
+# Git hooks（本地 CI）
+hooks:
+	git config core.hooksPath .githooks
+	@echo "✅ Git hooks 已启用（.githooks/）"
+
+hooks-uninstall:
+	git config --unset core.hooksPath
+	@echo "✅ Git hooks 已卸载"
 
 # 清理缓存
 clean:

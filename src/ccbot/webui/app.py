@@ -218,7 +218,9 @@ def create_app(
         if not isinstance(payload, dict) or any(
             not isinstance(key, str) or not isinstance(value, str) for key, value in payload.items()
         ):
-            return _redirect_with_message("/env", error="环境变量必须是 string -> string 的 JSON 对象")
+            return _redirect_with_message(
+                "/env", error="环境变量必须是 string -> string 的 JSON 对象"
+            )
 
         raw_config = state.read_config_payload()
         agent_config = raw_config.setdefault("agent", {})
@@ -694,7 +696,9 @@ class _WebConsoleState:
                 {
                     "name": path.parent.parent.name if path.parent.parent.name else "workspace",
                     "path": str(path),
-                    "disallowed_tools": disallowed_tools if isinstance(disallowed_tools, list) else [],
+                    "disallowed_tools": disallowed_tools
+                    if isinstance(disallowed_tools, list)
+                    else [],
                     "raw": json.dumps(payload, ensure_ascii=False, indent=2),
                 }
             )
