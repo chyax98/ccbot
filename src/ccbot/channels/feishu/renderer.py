@@ -108,6 +108,7 @@ async def send_single(
     msg_type: str = "reply",
     reply_to_message_id: str | None = None,
     reply_in_thread: bool = False,
+    _force_post: bool = False,
 ) -> None:
     """发送单条消息（不分段）。
 
@@ -116,6 +117,8 @@ async def send_single(
     - 含代码块或表格: 卡片(Schema 2.0)
     - 普通文本: post + md 标签
 
+    卡片渲染失败时（如表格数量超限 230099）自动降级为 post 格式。
+
     Args:
         client: Lark SDK client
         target: 目标 ID（chat_id 或 open_id）
@@ -123,12 +126,13 @@ async def send_single(
         msg_type: 消息类型 - "reply"(默认), "progress"(青色), "error"(红色)
         reply_to_message_id: 原始消息 ID，回复该消息
         reply_in_thread: True 时以话题形式回复
+        _force_post: 内部参数，强制使用 post 格式（降级时使用）
     """
     header_map = {
         "progress": ("⏳ 执行中", "turquoise"),
         "error": ("❌ 出错", "red"),
     }
-    use_card = msg_type in header_map or should_use_card(content)
+    use_card = not _force_post and (msg_type in header_map or should_use_card(content))
 
     if use_card:
         card: dict[str, Any] = {
@@ -191,6 +195,19 @@ async def send_single(
             if reply_to_message_id and response.code in (230001, 230002, 230003):
                 logger.warning("回复目标消息不可用 (code={})，降级为直接发送", response.code)
                 await send_single(client, target, content, msg_type=msg_type)
+                return
+            # 卡片内容超限（表格数量等），降级为 post 格式
+            if use_card and response.code == 230099:
+                logger.warning("卡片渲染受限 (code=230099: {})，降级为 post 格式", response.msg)
+                await send_single(
+                    client,
+                    target,
+                    content,
+                    msg_type=msg_type,
+                    reply_to_message_id=reply_to_message_id,
+                    reply_in_thread=reply_in_thread,
+                    _force_post=True,
+                )
                 return
             logger.error("发送失败: code={}, msg={}", response.code, response.msg)
 

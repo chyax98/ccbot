@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}ccbot dashboard{% endblock %}
+{% block content %}
+<section class="grid">
+  <article class="card">
+    <h2>Overview</h2>
+    <div class="stats">
+      <div class="stat">
+        <strong>{{ scheduler_jobs|length }}</strong>
+        <span class="muted">persisted schedule jobs</span>
+      </div>
+      <div class="stat">
+        <strong>{{ agent_files|length }}</strong>
+        <span class="muted">prompt / skill files discovered</span>
+      </div>
+      <div class="stat">
+        <strong>{{ env_items|length }}</strong>
+        <span class="muted">managed env keys in agent.env</span>
+      </div>
+      <div class="stat">
+        <strong>{{ "yes" if config_exists else "no" }}</strong>
+        <span class="muted">materialized config.json</span>
+      </div>
+    </div>
+  </article>
+
+  <article class="card two-up">
+    <h2>Runtime Shape</h2>
+    <table>
+      <tr><th>Workspace</th><td>{{ runtime_config.agent.workspace }}</td></tr>
+      <tr><th>Max turns</th><td>{{ runtime_config.agent.max_turns }}</td></tr>
+      <tr><th>Max workers</th><td>{{ runtime_config.agent.max_workers }}</td></tr>
+      <tr><th>Pooled workers</th><td>{{ runtime_config.agent.max_pooled_workers }}</td></tr>
+      <tr><th>Scheduler</th><td>{{ "enabled" if runtime_config.agent.scheduler_enabled else "disabled" }}</td></tr>
+      <tr><th>Heartbeat</th><td>{{ "enabled" if runtime_config.agent.heartbeat_enabled else "disabled" }}</td></tr>
+    </table>
+  </article>
+
+  <article class="card two-up">
+    {% if embedded %}
+    <h2>Runtime Status</h2>
+    <p><span class="tag">embedded</span> Web 控制台正运行在 ccbot run 进程内，数据实时可用。</p>
+    {% else %}
+    <h2>Operational Notes</h2>
+    <p><span class="tag">standalone</span> 独立模式，仅读写磁盘文件。</p>
+    {% endif %}
+    <ul>
+      {% if not embedded %}
+      <li>Scheduler 页面修改的是持久化任务文件；运行中的 <code>ccbot run</code> 进程不会自动热加载。</li>
+      {% endif %}
+      <li>Env 页面管理的是 <code>agent.env</code> 注入变量，不是宿主机 shell 的永久环境变量。</li>
+      <li>Agents 页面提供 prompt / skill / MCP 浏览。</li>
+    </ul>
+  </article>
+
+  {% if embedded %}
+  <article class="card two-up">
+    <h2>Live Workers</h2>
+    {% if live_workers %}
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Status</th><th>Model</th><th>Tasks</th><th>Idle</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for w in live_workers %}
+        <tr>
+          <td><strong>{{ w.name }}</strong>{% if w.owner_id %}<br /><span class="muted">owner={{ w.owner_id }}</span>{% endif %}</td>
+          <td><span class="tag">{{ w.status }}</span></td>
+          <td>{{ w.model }}</td>
+          <td>{{ w.task_count }}</td>
+          <td>{{ w.idle_seconds }}s</td>
+          <td>
+            <form method="post" action="/api/workers/{{ w.name }}/interrupt" style="display:inline">
+              <button type="submit" class="button secondary small" title="中断当前任务">interrupt</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>当前没有活跃 Worker。</p>
+    {% endif %}
+  </article>
+
+  <article class="card two-up">
+    <h2>Scheduler (Live)</h2>
+    {% if live_scheduler.enabled and live_scheduler.jobs %}
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Status</th><th>Cron</th><th>Next Run</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for job in live_scheduler.jobs[:8] %}
+        <tr>
+          <td>
+            <strong>{{ job.name }}</strong><br />
+            <span class="muted">{{ job.job_id }}</span>
+          </td>
+          <td>
+            <span class="tag">{{ job.last_status }}</span>
+            {% if job.job_id in live_scheduler.active_runs %}<span class="tag">running</span>{% endif %}
+          </td>
+          <td>{{ job.cron_expr }}</td>
+          <td>{{ job.next_run_at[:16] }}</td>
+          <td>
+            <form method="post" action="/api/scheduler/{{ job.job_id }}/run" style="display:inline">
+              <button type="submit" class="button secondary small" title="立即执行">run</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% elif not live_scheduler.enabled %}
+    <p>Scheduler 未启用。</p>
+    {% else %}
+    <p>当前没有定时任务。</p>
+    {% endif %}
+  </article>
+  {% endif %}
+
+  <article class="card three-up">
+    <h2>Recent Jobs</h2>
+    {% if scheduler_jobs %}
+    <table>
+      {% for job in scheduler_jobs[:5] %}
+      <tr>
+        <td>
+          <strong>{{ job.name }}</strong><br />
+          <span class="muted">{{ job.cron_expr }} · {{ job.timezone }}</span>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p>当前没有持久化定时任务。</p>
+    {% endif %}
+  </article>
+
+  <article class="card three-up">
+    <h2>Managed Env</h2>
+    {% if env_items %}
+    <table>
+      {% for item in env_items[:6] %}
+      <tr><td><code>{{ item.key }}</code></td><td>{{ item.value }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p>当前 `agent.env` 为空。</p>
+    {% endif %}
+  </article>
+
+  <article class="card three-up">
+    <h2>Agent Files</h2>
+    {% if agent_files %}
+    <table>
+      {% for item in agent_files[:6] %}
+      <tr>
+        <td>
+          <span class="tag">{{ item.kind }}</span><br />
+          <strong>{{ item.name }}</strong>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p>暂未发现 agent / skill 文件。</p>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}

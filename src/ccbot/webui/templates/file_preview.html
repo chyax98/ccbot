@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}ccbot file preview{% endblock %}
+{% block content %}
+<section class="grid">
+  <article class="card">
+    <h2>{{ title }}</h2>
+    <p><code>{{ file_path }}</code></p>
+    <div class="code-box"><pre>{{ file_content }}</pre></div>
+  </article>
+</section>
+{% endblock %}

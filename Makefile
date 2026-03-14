@@ -1,4 +1,4 @@
-.PHONY: lint format typecheck test ci clean docker docker-up docker-down
+.PHONY: lint format typecheck test ci clean docker docker-up docker-down run web chat dev
 
 # 静态检查
 lint:
@@ -19,6 +19,24 @@ test:
 
 # CI 全流程（lint + typecheck + test）
 ci: lint typecheck test
+
+# ── 运行 ──
+
+# 启动机器人（默认 feishu 通道 + 嵌入 Web 控制台 :8787）
+run:
+	uv run ccbot run
+
+# 仅启动独立 Web 控制台（离线配置管理）
+web:
+	uv run ccbot web
+
+# CLI 交互模式
+chat:
+	uv run ccbot chat
+
+# 开发模式：CLI 通道 + Web 控制台
+dev:
+	uv run ccbot run --channel cli
 
 # Docker
 docker:

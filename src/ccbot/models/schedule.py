@@ -7,7 +7,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from croniter import croniter  # type: ignore[import-untyped]
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ScheduleSpec(BaseModel):
@@ -51,6 +51,7 @@ class ScheduledJob(BaseModel):
     """持久化后的定时任务。"""
 
     job_id: str
+    system_key: str = ""
     name: str
     cron_expr: str
     timezone: str = "Asia/Shanghai"
@@ -70,3 +71,23 @@ class ScheduledJob(BaseModel):
     @property
     def runtime_chat_id(self) -> str:
         return f"schedule:{self.job_id}"
+
+
+class ScheduleControl(BaseModel):
+    """Supervisor 请求对已有定时任务执行的管理动作。"""
+
+    action: Literal["list", "delete", "pause", "resume", "run"]
+    target: str = ""
+
+    @field_validator("target", mode="before")
+    @classmethod
+    def strip_target(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @model_validator(mode="after")
+    def validate_target(self) -> ScheduleControl:
+        if self.action != "list" and not self.target:
+            raise ValueError("非 list 的 schedule_control 必须指定 target")
+        return self

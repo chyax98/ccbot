@@ -18,7 +18,7 @@ from loguru import logger
 from ccbot.config import AgentConfig
 from ccbot.memory import MemoryStore
 from ccbot.observability import configure_langsmith_once
-from ccbot.runtime.profiles import RuntimeRole, build_sdk_options
+from ccbot.runtime.profiles import RuntimeRole, build_sdk_options, join_prompt_parts
 from ccbot.runtime.sdk_utils import build_stderr_capture
 from ccbot.workspace import WorkspaceManager
 
@@ -167,9 +167,7 @@ class AgentPool:
             else:
                 memory_prompt = self._memory_store.build_memory_prompt(chat_id)
 
-        extra_prompt = "\n\n---\n\n".join(
-            part for part in (memory_prompt, self._extra_system_prompt) if part
-        )
+        extra_prompt = join_prompt_parts(memory_prompt, self._extra_system_prompt)
 
         kwargs = build_sdk_options(
             self._config,

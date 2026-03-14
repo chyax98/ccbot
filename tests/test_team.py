@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -47,7 +48,13 @@ def _mock_worker_pool(worker_replies: dict[str, str] | None = None) -> WorkerPoo
 
     if worker_replies:
 
-        async def fake_send(name: str, task: str, on_progress=None) -> str:
+        async def fake_send(
+            name: str,
+            task: str,
+            *,
+            owner_id: str = "",
+            on_progress=None,
+        ) -> str:
             return worker_replies.get(name, "default result")
 
         pool.send = AsyncMock(side_effect=fake_send)
@@ -179,7 +186,7 @@ async def test_on_progress_tagged_with_worker_name(team: AgentTeam) -> None:
         progress_msgs.append(msg)
 
     # send 调用 on_progress
-    async def fake_send(name, task, on_progress=None):
+    async def fake_send(name, task, *, owner_id="", on_progress=None):
         if on_progress:
             await on_progress("🔧 Bash")
         return "result"
@@ -206,7 +213,7 @@ async def test_worker_status_injected_into_supervisor_prompt(team: AgentTeam) ->
     team._supervisor = _mock_agent("直接回答")
     pool = _mock_worker_pool()
     pool.format_status = MagicMock(
-        return_value="[系统信息] 当前活跃 Workers:\n- fe (空闲 30s): cwd=/fe"
+        return_value="[系统信息] 当前活跃 Workers:\n- fe (空闲): cwd=/fe"
     )
     team._worker_pool = pool
 
@@ -220,7 +227,7 @@ async def test_worker_status_injected_into_supervisor_prompt(team: AgentTeam) ->
 
 @pytest.mark.asyncio
 async def test_no_worker_status_when_pool_empty(team: AgentTeam) -> None:
-    """没有活跃 Worker 时不注入 worker 状态，但 runtime_context 始终含当前时间。"""
+    """没有活跃 Worker 时不注入 worker 状态，但 runtime_context 始终含当前日期。"""
     team._supervisor = _mock_agent("直接回答")
     pool = _mock_worker_pool()
     pool.format_status = MagicMock(return_value="")
@@ -230,7 +237,7 @@ async def test_no_worker_status_when_pool_empty(team: AgentTeam) -> None:
 
     actual_prompt = team._supervisor.ask_run.call_args.args[1]
     assert "<runtime_context>" in actual_prompt
-    assert "Current time:" in actual_prompt
+    assert "Current date:" in actual_prompt
     assert "你好" in actual_prompt
     assert "当前活跃 Workers" not in actual_prompt
 
@@ -378,6 +385,7 @@ async def test_control_command_workers_returns_status(team: AgentTeam) -> None:
     reply = await team.ask("chat1", "/workers")
 
     assert "当前活跃 Workers" in reply
+    pool.format_status.assert_called_once_with(owner_id="chat1")
     supervisor.ask_run.assert_not_called()
 
 
@@ -430,6 +438,18 @@ async def test_control_command_stop_handles_idle_supervisor(team: AgentTeam) -> 
     reply = await team.ask("chat1", "/stop")
 
     assert reply == "当前没有可中断的任务。"
+
+
+@pytest.mark.asyncio
+async def test_control_command_schedule_run_handles_active_job(team: AgentTeam) -> None:
+    scheduler = MagicMock()
+    scheduler.run_job_now = AsyncMock(return_value="already_running")
+    team.set_scheduler(scheduler)
+
+    reply = await team.ask("chat1", "/schedule run job-1")
+
+    assert reply == "定时任务正在执行中: job-1"
+    scheduler.run_job_now.assert_awaited_once_with("job-1")
 
 
 @pytest.mark.asyncio
@@ -524,7 +544,8 @@ async def test_control_command_worker_kill(team: AgentTeam) -> None:
     reply = await team.ask("chat1", "/worker kill fe")
 
     assert reply == "已销毁 Worker: fe"
-    pool.kill.assert_awaited_once_with("fe")
+    pool.has_worker.assert_called_once_with("fe", owner_id="chat1")
+    pool.kill.assert_awaited_once_with("fe", owner_id="chat1")
 
 
 @pytest.mark.asyncio
@@ -537,7 +558,8 @@ async def test_control_command_worker_stop(team: AgentTeam) -> None:
     reply = await team.ask("chat1", "/worker stop fe")
 
     assert reply == "已中断 Worker: fe"
-    pool.interrupt.assert_awaited_once_with("fe")
+    pool.has_worker.assert_called_once_with("fe", owner_id="chat1")
+    pool.interrupt.assert_awaited_once_with("fe", owner_id="chat1")
 
 
 @pytest.mark.asyncio
@@ -559,3 +581,58 @@ async def test_invalid_structured_output_returns_friendly_error(team: AgentTeam)
     reply = await team.ask("chat1", "创建一个坏掉的定时任务")
 
     assert reply == "Supervisor 返回了无效的结构化结果，请重试。"
+
+
+@pytest.mark.asyncio
+async def test_schedule_manage_delete_routes_to_scheduler(team: AgentTeam) -> None:
+    team._supervisor = _mock_agent(
+        "",
+        {
+            "mode": "schedule_manage",
+            "user_message": "我来删除这个定时任务。",
+            "schedule_control": {
+                "action": "delete",
+                "target": "job-1",
+            },
+        },
+    )
+    scheduler = MagicMock()
+    scheduler.list_jobs.return_value = [
+        SimpleNamespace(job_id="job-1", name="日报提醒"),
+    ]
+    scheduler.format_status.return_value = ""
+    scheduler.delete_job.return_value = True
+    team.set_scheduler(scheduler)
+
+    reply = await team.ask("chat1", "删掉定时任务")
+
+    assert reply == "我来删除这个定时任务。\n\n已删除定时任务: 日报提醒 (job-1)"
+    scheduler.delete_job.assert_called_once_with("job-1")
+
+
+@pytest.mark.asyncio
+async def test_schedule_manage_requires_explicit_target_when_ambiguous(team: AgentTeam) -> None:
+    team._supervisor = _mock_agent(
+        "",
+        {
+            "mode": "schedule_manage",
+            "user_message": "",
+            "schedule_control": {
+                "action": "delete",
+                "target": "review",
+            },
+        },
+    )
+    scheduler = MagicMock()
+    scheduler.list_jobs.return_value = [
+        SimpleNamespace(job_id="job-1", name="每日项目Review提醒"),
+        SimpleNamespace(job_id="job-2", name="每日项目Review提醒-多Worker版"),
+    ]
+    scheduler.format_status.return_value = ""
+    team.set_scheduler(scheduler)
+
+    reply = await team.ask("chat1", "删掉 review 定时任务")
+
+    assert "找到多个候选定时任务" in reply
+    assert "job-1" in reply
+    assert "job-2" in reply

@@ -36,7 +36,7 @@ def test_memory_store_clear_conversation(tmp_path: Path) -> None:
 def test_remember_turn_strips_runtime_context(tmp_path: Path) -> None:
     """remember_turn 存入前应过滤 <runtime_context> 块，避免系统状态污染短期记忆。"""
     store = MemoryStore(tmp_path / "workspace")
-    enhanced = "<runtime_context>\nCurrent time: 2026-03-09\n</runtime_context>\n\n用户真实消息"
+    enhanced = "<runtime_context>\nCurrent date: 2026-03-09\n</runtime_context>\n\n用户真实消息"
     store.remember_turn("chat-1", enhanced, "回复")
 
     memory = store.load("chat-1")

@@ -22,6 +22,12 @@ ExecuteCallback = Callable[[ScheduledJob], Awaitable[str]]
 NotifyCallback = Callable[[ScheduledJob, str], Awaitable[None]]
 
 
+class RunJobNowResult:
+    MISSING = "missing"
+    STARTED = "started"
+    ALREADY_RUNNING = "already_running"
+
+
 class SchedulerService:
     """轻量持久化 scheduler。"""
 
@@ -44,6 +50,11 @@ class SchedulerService:
         self._active_runs: set[str] = set()
         self._jobs: dict[str, ScheduledJob] = {}
         self._load_jobs()
+
+    @property
+    def active_runs(self) -> frozenset[str]:
+        """当前正在执行的 job_id 集合（只读快照）。"""
+        return frozenset(self._active_runs)
 
     async def start(self) -> None:
         if self._running:
@@ -76,11 +87,13 @@ class SchedulerService:
         channel: str,
         notify_target: str,
         conversation_id: str,
+        system_key: str = "",
     ) -> ScheduledJob:
         job_id = uuid.uuid4().hex[:10]
         next_run_at = self._compute_next_run(spec.cron_expr, spec.timezone).isoformat()
         job = ScheduledJob(
             job_id=job_id,
+            system_key=system_key,
             name=spec.name,
             cron_expr=spec.cron_expr,
             timezone=spec.timezone,
@@ -102,12 +115,80 @@ class SchedulerService:
     def get_job(self, job_id: str) -> ScheduledJob | None:
         return self._jobs.get(job_id)
 
+    def get_job_by_system_key(self, system_key: str) -> ScheduledJob | None:
+        if not system_key:
+            return None
+        for job in self._jobs.values():
+            if job.system_key == system_key:
+                return job
+        return None
+
+    def ensure_job(
+        self,
+        spec: ScheduleSpec,
+        *,
+        created_by: str,
+        channel: str,
+        notify_target: str,
+        conversation_id: str,
+        system_key: str,
+    ) -> tuple[ScheduledJob, str]:
+        existing = self.get_job_by_system_key(system_key)
+        if existing is None:
+            return (
+                self.create_job(
+                    spec,
+                    created_by=created_by,
+                    channel=channel,
+                    notify_target=notify_target,
+                    conversation_id=conversation_id,
+                    system_key=system_key,
+                ),
+                "created",
+            )
+
+        changed = False
+        previous_cron = existing.cron_expr
+        previous_timezone = existing.timezone
+        updates = {
+            "name": spec.name,
+            "cron_expr": spec.cron_expr,
+            "timezone": spec.timezone,
+            "prompt": spec.prompt,
+            "purpose": spec.purpose,
+            "created_by": created_by,
+            "channel": channel,
+            "notify_target": notify_target,
+            "conversation_id": conversation_id,
+            "system_key": system_key,
+        }
+        for field_name, value in updates.items():
+            if getattr(existing, field_name) != value:
+                setattr(existing, field_name, value)
+                changed = True
+
+        if changed and (previous_cron != existing.cron_expr or previous_timezone != existing.timezone):
+            existing.next_run_at = self._compute_next_run(
+                existing.cron_expr, existing.timezone
+            ).isoformat()
+
+        if changed:
+            self._save_jobs()
+            return existing, "updated"
+        return existing, "existing"
+
     def delete_job(self, job_id: str) -> bool:
         removed = self._jobs.pop(job_id, None)
         if removed is None:
             return False
         self._save_jobs()
         return True
+
+    def delete_job_by_system_key(self, system_key: str) -> bool:
+        job = self.get_job_by_system_key(system_key)
+        if job is None:
+            return False
+        return self.delete_job(job.job_id)
 
     def pause_job(self, job_id: str) -> bool:
         job = self._jobs.get(job_id)
@@ -126,12 +207,14 @@ class SchedulerService:
         self._save_jobs()
         return True
 
-    async def run_job_now(self, job_id: str) -> bool:
+    async def run_job_now(self, job_id: str) -> str:
         job = self._jobs.get(job_id)
         if job is None:
-            return False
+            return RunJobNowResult.MISSING
+        if job.job_id in self._active_runs:
+            return RunJobNowResult.ALREADY_RUNNING
         await self._run_job(job)
-        return True
+        return RunJobNowResult.STARTED
 
     def format_status(self, max_shown: int = 5) -> str:
         if not self._jobs:
