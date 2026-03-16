@@ -29,27 +29,18 @@ def test_server_has_type_sdk(tools: dict) -> None:
 
 @pytest.mark.asyncio
 async def test_schedule_list_empty(scheduler: MagicMock) -> None:
-    scheduler.list_jobs.return_value = []
+    scheduler.format_jobs.return_value = ""
     tools = create_runtime_tools(scheduler)
-    # 直接调用 MCP server 的 tool handler
-    server_instance = tools["instance"]
-    # 通过 server 的内部 tools 列表找到 schedule_list
-    result = await _call_tool(server_instance, "schedule_list", {})
+    result = await _call_tool(tools["instance"], "schedule_list", {})
     assert "没有定时任务" in result["content"][0]["text"]
 
 
 @pytest.mark.asyncio
 async def test_schedule_list_with_jobs(scheduler: MagicMock) -> None:
-    scheduler.list_jobs.return_value = [
-        MagicMock(
-            job_id="job-1",
-            name="日报",
-            cron_expr="0 9 * * *",
-            timezone="Asia/Shanghai",
-            enabled=True,
-            next_run_at="2026-01-17 09:00:00",
-        ),
-    ]
+    scheduler.format_jobs.return_value = (
+        "共 1 个定时任务：\n"
+        "- job-1  日报  cron=0 9 * * *  tz=Asia/Shanghai  status=enabled  next=2026-01-17 09:00:00"
+    )
     tools = create_runtime_tools(scheduler)
     result = await _call_tool(tools["instance"], "schedule_list", {})
     text = result["content"][0]["text"]
@@ -140,6 +131,62 @@ async def test_schedule_resume_success(scheduler: MagicMock) -> None:
     tools = create_runtime_tools(scheduler)
     result = await _call_tool(tools["instance"], "schedule_resume", {"job_id": "job-1"})
     assert "已恢复" in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_schedule_edit_success(scheduler: MagicMock) -> None:
+    scheduler.update_job.return_value = MagicMock(
+        job_id="job-1",
+        name="新名称",
+        cron_expr="0 10 * * *",
+        timezone="Asia/Shanghai",
+        next_run_at="2026-01-17 10:00:00",
+    )
+    tools = create_runtime_tools(scheduler)
+    result = await _call_tool(
+        tools["instance"],
+        "schedule_edit",
+        {"job_id": "job-1", "name": "新名称", "cron_expr": "0 10 * * *"},
+    )
+    text = result["content"][0]["text"]
+    assert "已更新" in text
+    assert "新名称" in text
+    scheduler.update_job.assert_called_once_with("job-1", name="新名称", cron_expr="0 10 * * *")
+
+
+@pytest.mark.asyncio
+async def test_schedule_edit_not_found(scheduler: MagicMock) -> None:
+    scheduler.update_job.return_value = None
+    tools = create_runtime_tools(scheduler)
+    result = await _call_tool(
+        tools["instance"],
+        "schedule_edit",
+        {"job_id": "bad-id", "prompt": "新内容"},
+    )
+    assert "不存在" in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_schedule_edit_no_fields(scheduler: MagicMock) -> None:
+    tools = create_runtime_tools(scheduler)
+    result = await _call_tool(
+        tools["instance"],
+        "schedule_edit",
+        {"job_id": "job-1"},
+    )
+    assert "至少需要" in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_schedule_edit_exception(scheduler: MagicMock) -> None:
+    scheduler.update_job.side_effect = ValueError("cron_expr 无效")
+    tools = create_runtime_tools(scheduler)
+    result = await _call_tool(
+        tools["instance"],
+        "schedule_edit",
+        {"job_id": "job-1", "cron_expr": "bad"},
+    )
+    assert "更新失败" in result["content"][0]["text"]
 
 
 @pytest.mark.asyncio

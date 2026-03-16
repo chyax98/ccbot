@@ -47,19 +47,7 @@ def create_runtime_tools(
 
     @tool("schedule_list", "列出所有定时任务（含已暂停的）", {})
     async def schedule_list(args: dict[str, Any]) -> dict[str, Any]:
-        jobs = scheduler.list_jobs()
-        if not jobs:
-            return _text("当前没有定时任务。")
-
-        lines: list[str] = []
-        for job in jobs:
-            status = "enabled" if job.enabled else "paused"
-            lines.append(
-                f"- job_id={job.job_id}  name={job.name}  "
-                f"cron={job.cron_expr}  tz={job.timezone}  "
-                f"status={status}  next={job.next_run_at}"
-            )
-        return _text(f"共 {len(jobs)} 个定时任务：\n" + "\n".join(lines))
+        return _text(scheduler.format_jobs() or "当前没有定时任务。")
 
     # ── schedule_create ──
 
@@ -106,6 +94,58 @@ def create_runtime_tools(
         return _text(
             f"已创建定时任务：{job.name}\n"
             f"- job_id: {job.job_id}\n"
+            f"- cron: {job.cron_expr}\n"
+            f"- timezone: {job.timezone}\n"
+            f"- next_run_at: {job.next_run_at}"
+        )
+
+    # ── schedule_edit ──
+
+    @tool(
+        "schedule_edit",
+        "编辑已有定时任务的字段（部分更新）。仅传入需要修改的字段即可。",
+        {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "要编辑的任务 ID"},
+                "name": {"type": "string", "description": "新的任务名称"},
+                "cron_expr": {
+                    "type": "string",
+                    "description": "新的 cron 表达式（修改后自动重算下次执行时间）",
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "新的时区（修改后自动重算下次执行时间）",
+                },
+                "prompt": {"type": "string", "description": "新的执行提示词"},
+                "purpose": {"type": "string", "description": "新的目的说明"},
+            },
+            "required": ["job_id"],
+        },
+    )
+    async def schedule_edit(args: dict[str, Any]) -> dict[str, Any]:
+        job_id = args.get("job_id", "")
+        if not job_id:
+            return _error("缺少 job_id 参数")
+
+        update_kwargs: dict[str, str] = {}
+        for field in ("name", "cron_expr", "timezone", "prompt", "purpose"):
+            if field in args:
+                update_kwargs[field] = args[field]
+
+        if not update_kwargs:
+            return _error("至少需要提供一个要修改的字段")
+
+        try:
+            job = scheduler.update_job(job_id, **update_kwargs)
+        except Exception as exc:
+            return _error(f"更新失败：{exc}")
+
+        if job is None:
+            return _error(f"定时任务不存在：{job_id}")
+
+        return _text(
+            f"已更新定时任务：{job.name} ({job_id})\n"
             f"- cron: {job.cron_expr}\n"
             f"- timezone: {job.timezone}\n"
             f"- next_run_at: {job.next_run_at}"
@@ -169,6 +209,7 @@ def create_runtime_tools(
     tools: list[SdkMcpTool[Any]] = [
         schedule_list,
         schedule_create,
+        schedule_edit,
         schedule_delete,
         schedule_pause,
         schedule_resume,

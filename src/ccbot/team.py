@@ -173,10 +173,6 @@ class AgentTeam:
         if worker_status:
             context_parts.append(worker_status)
 
-        schedule_status = self._scheduler.format_status() if self._scheduler is not None else ""
-        if schedule_status:
-            context_parts.append(schedule_status)
-
         context_block = "<runtime_context>\n" + "\n\n".join(context_parts) + "\n</runtime_context>"
         enhanced_prompt = f"{context_block}\n\n{prompt}"
 
@@ -415,8 +411,7 @@ class AgentTeam:
         if lowered == "/schedule list":
             if self._scheduler is None:
                 return "当前未启用 Scheduler。"
-            status = self._scheduler.format_status()
-            return status or "当前没有定时任务。"
+            return self._scheduler.format_jobs() or "当前没有定时任务。"
 
         if lowered.startswith("/schedule delete "):
             if self._scheduler is None:

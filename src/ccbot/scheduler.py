@@ -211,6 +211,41 @@ class SchedulerService:
         self._save_jobs()
         return True
 
+    def update_job(
+        self,
+        job_id: str,
+        *,
+        name: str | None = None,
+        cron_expr: str | None = None,
+        timezone: str | None = None,
+        prompt: str | None = None,
+        purpose: str | None = None,
+    ) -> ScheduledJob | None:
+        """部分更新定时任务字段，返回更新后的 job；job 不存在返回 None。"""
+        job = self._jobs.get(job_id)
+        if job is None:
+            return None
+
+        need_recompute = False
+        if name is not None:
+            job.name = name
+        if cron_expr is not None and cron_expr != job.cron_expr:
+            job.cron_expr = cron_expr
+            need_recompute = True
+        if timezone is not None and timezone != job.timezone:
+            job.timezone = timezone
+            need_recompute = True
+        if prompt is not None:
+            job.prompt = prompt
+        if purpose is not None:
+            job.purpose = purpose
+
+        if need_recompute:
+            job.next_run_at = self._compute_next_run(job.cron_expr, job.timezone).isoformat()
+
+        self._save_jobs()
+        return job
+
     async def run_job_now(self, job_id: str) -> str:
         """立即触发定时任务（异步执行，不阻塞调用方）。"""
         job = self._jobs.get(job_id)
@@ -221,17 +256,19 @@ class SchedulerService:
         self._launch_job(job)
         return RunJobNowResult.STARTED
 
-    def format_status(self, max_shown: int = 5) -> str:
-        if not self._jobs:
+    def format_jobs(self) -> str:
+        """格式化所有定时任务为可读文本。无任务时返回空字符串。"""
+        jobs = self.list_jobs()
+        if not jobs:
             return ""
-        enabled_jobs = [j for j in self.list_jobs() if j.enabled]
-        if not enabled_jobs:
-            return ""
-        lines = ["[系统信息] 当前定时任务:"]
-        for job in enabled_jobs[:max_shown]:
-            lines.append(f"- {job.job_id} {job.name}: cron={job.cron_expr}, next={job.next_run_at}")
-        if len(enabled_jobs) > max_shown:
-            lines.append(f"...（共 {len(enabled_jobs)} 个启用任务，/schedule list 查看全部）")
+        lines = [f"共 {len(jobs)} 个定时任务："]
+        for job in jobs:
+            status = "enabled" if job.enabled else "paused"
+            lines.append(
+                f"- {job.job_id}  {job.name}  "
+                f"cron={job.cron_expr}  tz={job.timezone}  "
+                f"status={status}  next={job.next_run_at}"
+            )
         return "\n".join(lines)
 
     async def _loop(self) -> None:
