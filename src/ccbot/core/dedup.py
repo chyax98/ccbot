@@ -29,7 +29,7 @@ class DedupCache:
         cache = DedupCache(ttl_ms=86400000, max_size=1000)
         if cache.check("msg_123"):
             print("Already processed")
-        await cache.persist("~/.ccbot/dedup")
+        await cache.persist(".ccbot/dedup")
     """
 
     DEFAULT_TTL_MS = 24 * 60 * 60 * 1000  # 24 hours

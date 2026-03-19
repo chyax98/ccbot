@@ -3,13 +3,24 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_DEFAULT_WORKSPACE = str(Path.home() / ".ccbot" / "workspace")
 _DEFAULT_CONFIG = Path.home() / ".ccbot" / "config.json"
+
+
+class LoggingConfig(BaseModel):
+    """日志配置。"""
+
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    file_enabled: bool = True
+    file_path: str = "~/.ccbot/logs/ccbot.log"
+    max_file_size_mb: int = 10
+    rotation_days: int = 7
+    format: Literal["text", "json"] = "text"
+    console_enabled: bool = True
 
 
 class AgentConfig(BaseModel):
@@ -17,7 +28,6 @@ class AgentConfig(BaseModel):
 
     # 基础配置
     model: str = ""  # 模型名，空=SDK 默认; 如 "claude-opus-4-6"
-    workspace: str = _DEFAULT_WORKSPACE
     max_turns: int = 10
 
     # SDK 配置
@@ -100,6 +110,7 @@ class FeishuConfig(BaseModel):
 class Config(BaseSettings):
     feishu: FeishuConfig = Field(default_factory=FeishuConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     model_config = SettingsConfigDict(
         env_prefix="CCBOT_",

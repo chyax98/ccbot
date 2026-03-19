@@ -401,7 +401,7 @@ class _WebConsoleState:
         return load_config(self.config_path)
 
     def load_workspace(self, runtime_config: Config) -> WorkspaceManager:
-        return WorkspaceManager(Path(runtime_config.agent.workspace))
+        return WorkspaceManager(self.config_path.parent)
 
     def load_scheduler(self, workspace_path: Path) -> SchedulerService:
         async def _noop_execute(job: ScheduledJob) -> str:
@@ -614,7 +614,7 @@ class _WebConsoleState:
             {
                 "name": "Scheduler",
                 "purpose": "把周期性动作落成持久化任务，而不是会话内临时 loop。",
-                "storage": f"{workspace_path}/.ccbot/schedules/jobs.json",
+                "storage": f"{workspace_path}/schedules/jobs.json",
                 "effect": "负责长期自动化执行，不属于单次 prompt。",
             },
         ]

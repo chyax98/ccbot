@@ -7,6 +7,34 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **目录结构简化** — workspace 扁平化，移除 `workspace/.ccbot/` 嵌套层级。新结构：
+  ```
+  ~/.ccbot/
+  ├── config.json
+  ├── .claude/
+  ├── memory/
+  ├── schedules/
+  ├── dedup/
+  ├── tmp/
+  └── output/
+  ```
+  - `AgentConfig.workspace` 字段已移除，workspace 路径由 config 文件所在目录推导
+  - `WorkspaceManager.runtime_dir` 现在返回 workspace 根目录
+  - `MemoryStore` 路径从 `workspace/.ccbot/memory` 改为 `workspace/memory`
+  - `SchedulerService` 路径从 `workspace/.ccbot/schedules` 改为 `workspace/schedules`
+  - 飞书 channel 的 `dedup_dir`/`tmp_dir` fallback 已移除,强制由 workspace 提供
+  - `ccbot onboard` 命令创建扁平目录结构
+
+### Added
+
+- **日志系统增强** — 新增 `LoggingConfig` 配置模块和 `logging_setup.py`：
+  - 支持 DEBUG/INFO/WARNING/ERROR 级别
+  - 支持控制台和文件双输出
+  - 支持 text 和 json 两种格式
+  - 支持日志轮转（按大小)和保留(按天数)
+
 ### Fixed
 
 - **调度链路：通知失败不再覆盖执行状态** — `_run_job` 中所有 `_on_notify` 调用改为 `_safe_notify`，通知发送失败（如飞书 API 不可用）只记日志，不影响已成功执行的任务状态。此前通知失败会让 `succeeded` 被覆盖为 `failed`。(`scheduler.py`)

@@ -11,10 +11,10 @@ from ccbot.workspace import WorkspaceManager
 
 
 def test_webui_dashboard_and_scheduler_management(tmp_path: Path) -> None:
-    workspace = WorkspaceManager(tmp_path / "workspace")
+    workspace = WorkspaceManager(tmp_path)
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        json.dumps({"agent": {"workspace": str(workspace.path)}}, ensure_ascii=False),
+        json.dumps({"agent": {}}, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -53,10 +53,10 @@ def test_webui_dashboard_and_scheduler_management(tmp_path: Path) -> None:
 
 
 def test_webui_saves_config_and_env(tmp_path: Path) -> None:
-    workspace = WorkspaceManager(tmp_path / "workspace")
+    workspace = WorkspaceManager(tmp_path)
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        json.dumps({"agent": {"workspace": str(workspace.path)}}, ensure_ascii=False),
+        json.dumps({"agent": {}}, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -68,7 +68,6 @@ def test_webui_saves_config_and_env(tmp_path: Path) -> None:
             "config_text": json.dumps(
                 {
                     "agent": {
-                        "workspace": str(workspace.path),
                         "scheduler_enabled": False,
                     }
                 },
@@ -103,10 +102,10 @@ def test_webui_saves_config_and_env(tmp_path: Path) -> None:
 
 def test_webui_api_status_standalone(tmp_path: Path) -> None:
     """独立模式下 /api/status 返回 embedded=False。"""
-    workspace = WorkspaceManager(tmp_path / "workspace")
+    workspace = WorkspaceManager(tmp_path)
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        json.dumps({"agent": {"workspace": str(workspace.path)}}, ensure_ascii=False),
+        json.dumps({"agent": {}}, ensure_ascii=False),
         encoding="utf-8",
     )
     client = TestClient(create_app(config_path))
@@ -120,10 +119,10 @@ def test_webui_api_status_standalone(tmp_path: Path) -> None:
 
 def test_webui_runtime_api_requires_embedded(tmp_path: Path) -> None:
     """独立模式下运行时 API 返回 503。"""
-    workspace = WorkspaceManager(tmp_path / "workspace")
+    workspace = WorkspaceManager(tmp_path)
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        json.dumps({"agent": {"workspace": str(workspace.path)}}, ensure_ascii=False),
+        json.dumps({"agent": {}}, ensure_ascii=False),
         encoding="utf-8",
     )
     client = TestClient(create_app(config_path))
@@ -135,10 +134,10 @@ def test_webui_runtime_api_requires_embedded(tmp_path: Path) -> None:
 
 def test_webui_dashboard_embedded_mode(tmp_path: Path) -> None:
     """嵌入模式下 dashboard 渲染 Runtime Status。"""
-    workspace = WorkspaceManager(tmp_path / "workspace")
+    workspace = WorkspaceManager(tmp_path)
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        json.dumps({"agent": {"workspace": str(workspace.path)}}, ensure_ascii=False),
+        json.dumps({"agent": {}}, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -178,16 +177,14 @@ def test_webui_config_hot_reload_embedded(tmp_path: Path) -> None:
 
     from ccbot.config import AgentConfig
 
-    workspace = WorkspaceManager(tmp_path / "workspace")
+    workspace = WorkspaceManager(tmp_path)
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        json.dumps({"agent": {"workspace": str(workspace.path)}}, ensure_ascii=False),
+        json.dumps({"agent": {}}, ensure_ascii=False),
         encoding="utf-8",
     )
 
-    live_config = AgentConfig(
-        workspace=str(workspace.path), max_workers=4, worker_idle_timeout=3600
-    )
+    live_config = AgentConfig(max_workers=4, worker_idle_timeout=3600)
     mock_team = MagicMock()
     mock_team.worker_pool.list_workers.return_value = []
 
@@ -205,7 +202,6 @@ def test_webui_config_hot_reload_embedded(tmp_path: Path) -> None:
     # 修改可热重载字段
     new_config = {
         "agent": {
-            "workspace": str(workspace.path),
             "max_workers": 8,
             "worker_idle_timeout": 7200,
             "scheduler_poll_interval_s": 60,

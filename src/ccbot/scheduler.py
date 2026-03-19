@@ -42,7 +42,7 @@ class SchedulerService:
         *,
         config: AgentConfig | None = None,
     ) -> None:
-        self._root = workspace_path / ".ccbot" / "schedules"
+        self._root = workspace_path / "schedules"
         self._root.mkdir(parents=True, exist_ok=True)
         self._jobs_file = self._root / "jobs.json"
         self._on_execute = on_execute

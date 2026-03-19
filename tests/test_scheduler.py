@@ -208,7 +208,7 @@ async def test_scheduler_stop_resets_cancelled_running_job(tmp_path: Path) -> No
 
 
 def test_scheduler_load_jobs_tolerates_invalid_json(tmp_path: Path) -> None:
-    jobs_file = tmp_path / ".ccbot" / "schedules" / "jobs.json"
+    jobs_file = tmp_path / "schedules" / "jobs.json"
     jobs_file.parent.mkdir(parents=True, exist_ok=True)
     jobs_file.write_text("not json", encoding="utf-8")
 
@@ -218,7 +218,7 @@ def test_scheduler_load_jobs_tolerates_invalid_json(tmp_path: Path) -> None:
 
 
 def test_scheduler_load_jobs_skips_invalid_records(tmp_path: Path) -> None:
-    jobs_file = tmp_path / ".ccbot" / "schedules" / "jobs.json"
+    jobs_file = tmp_path / "schedules" / "jobs.json"
     jobs_file.parent.mkdir(parents=True, exist_ok=True)
     jobs_file.write_text(
         json.dumps(

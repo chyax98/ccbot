@@ -55,7 +55,7 @@ class MemoryStore:
 
     def __init__(self, workspace_path: Path, max_short_term_turns: int = 12) -> None:
         self._workspace_path = workspace_path
-        self._root = workspace_path / ".ccbot" / "memory"
+        self._root = workspace_path / "memory"
         self._max_short_term_turns = max_short_term_turns
         self._conversations_dir = (
             self._root / "conversations"

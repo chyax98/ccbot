@@ -60,25 +60,28 @@ def _format_langsmith_status(status: dict[str, object]) -> str:
     return f"enabled ({project})"
 
 
-def _setup_logging(verbose: bool) -> None:
-    logger.remove()
-    logger.add(
-        sys.stderr,
-        level="DEBUG" if verbose else "INFO",
-        format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-            "<level>{level: <8}</level> | "
-            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-            "<level>{message}</level>"
-        ),
-    )
+def _setup_logging(config: "Config", verbose: bool = False) -> None:
+    """初始化日志系统。"""
+    from ccbot.logging_setup import setup_logging
+
+    logging_config = config.logging.model_copy(deep=True)
+    if verbose:
+        logging_config.level = "DEBUG"
+    setup_logging(logging_config)
 
 
 @app.callback()
 def _callback(
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="启用详细日志")] = False,
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", "-c", help="配置文件路径"),
+    ] = _DEFAULT_CONFIG,
 ) -> None:
-    _setup_logging(verbose)
+    from ccbot.config import load_config
+
+    config = load_config(config_path)
+    _setup_logging(config, verbose=verbose)
 
 
 @app.command()
@@ -94,11 +97,105 @@ def version() -> None:
 
 
 @app.command()
+def onboard(
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", "-c", help="配置文件路径"),
+    ] = _DEFAULT_CONFIG,
+) -> None:
+    """交互式配置向导，引导完成首次配置。"""
+    import json
+
+    from rich.prompt import Confirm, Prompt
+
+    console.print(Panel(f"{__logo__} ccbot 配置向导", border_style="cyan"))
+
+    # 检查已有配置
+    if config_path.exists():
+        if not Confirm.ask(f"配置文件 {config_path} 已存在，是否覆盖？", default=False):
+            console.print("[yellow]已取消[/yellow]")
+            return
+
+    # 选择使用场景
+    console.print("\n[bold]请选择使用场景:[/bold]")
+    console.print("  1) CLI 交互模式 - 仅在终端使用")
+    console.print("  2) 飞书机器人   - 接入飞书群聊/私聊")
+    mode = Prompt.ask("选择", choices=["1", "2"], default="1")
+
+    config: dict[str, dict[str, object]] = {
+        "feishu": {},
+        "agent": {},
+    }
+
+    # Agent 基础配置
+    console.print("\n[bold cyan]── Agent 配置 ──[/bold cyan]")
+
+    model = Prompt.ask(
+        "模型名称 (留空使用 SDK 默认)",
+        default="",
+    )
+    if model:
+        config["agent"]["model"] = model
+
+    # 飞书配置（如果选择场景2）
+    if mode == "2":
+        console.print("\n[bold cyan]── 飞书配置 ──[/bold cyan]")
+        console.print("[dim]请前往飞书开放平台 https://open.feishu.cn 创建企业自建应用[/dim]\n")
+
+        app_id = Prompt.ask("App ID", default="")
+        app_secret = Prompt.ask("App Secret", password=True, default="")
+
+        config["feishu"]["app_id"] = app_id
+        config["feishu"]["app_secret"] = app_secret
+
+        # 群聊策略
+        require_mention = Confirm.ask(
+            "群聊中是否需要 @机器人 才响应？",
+            default=True,
+        )
+        config["feishu"]["require_mention"] = require_mention
+
+    # LangSmith 可观测性（可选）
+    console.print("\n[bold cyan]── 可观测性配置 (可选) ──[/bold cyan]")
+    enable_langsmith = Confirm.ask(
+        "是否启用 LangSmith 追踪？",
+        default=False,
+    )
+    if enable_langsmith:
+        config["agent"]["langsmith_enabled"] = True
+        project = Prompt.ask("LangSmith Project", default="ccbot")
+        config["agent"]["langsmith_project"] = project
+        api_key = Prompt.ask("LangSmith API Key", password=True, default="")
+        if api_key:
+            config["agent"]["langsmith_api_key"] = api_key
+
+    # 创建目录结构（workspace = config 所在目录）
+    workspace_path = config_path.parent
+    workspace_path.mkdir(parents=True, exist_ok=True)
+    (workspace_path / "memory").mkdir(parents=True, exist_ok=True)
+    (workspace_path / "schedules").mkdir(parents=True, exist_ok=True)
+    (workspace_path / "output").mkdir(parents=True, exist_ok=True)
+
+    # 写入配置文件
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+    # 完成提示
+    console.print("\n[bold green]✓ 配置完成！[/bold green]")
+    console.print(f"  配置文件: [cyan]{config_path}[/cyan]")
+    console.print(f"  Workspace: [cyan]{workspace_path}[/cyan]")
+
+    console.print("\n[bold]下一步:[/bold]")
+    if mode == "1":
+        console.print(f"  [cyan]uv run ccbot chat -c {config_path}[/cyan]")
+    else:
+        console.print(f"  [cyan]uv run ccbot run -c {config_path}[/cyan]")
+
+
+@app.command()
 def chat(
     message: Annotated[str | None, typer.Option("--message", "-m", help="单次消息")] = None,
-    workspace: Annotated[
-        str | None, typer.Option("--workspace", "-w", help="workspace 路径")
-    ] = None,
     config_path: Annotated[
         Path,
         typer.Option("--config", "-c", help="配置文件路径（JSON）"),
@@ -110,8 +207,7 @@ def chat(
     from ccbot.workspace import WorkspaceManager
 
     config = load_config(config_path)
-    ws_path = Path(workspace) if workspace else Path(config.agent.workspace)
-    ws = WorkspaceManager(ws_path)
+    ws = WorkspaceManager(config_path.parent)
     langsmith_status = _augment_langsmith_metadata(config, entrypoint="chat", workspace=ws.path)
     logger.info("LangSmith: {}", _format_langsmith_status(langsmith_status))
     team = AgentTeam(config.agent, ws)
@@ -249,7 +345,7 @@ def run(
     from ccbot.workspace import WorkspaceManager
 
     config = load_config(config_path)
-    workspace = WorkspaceManager(Path(config.agent.workspace))
+    workspace = WorkspaceManager(config_path.parent)
     langsmith_status = _augment_langsmith_metadata(
         config,
         entrypoint="run",

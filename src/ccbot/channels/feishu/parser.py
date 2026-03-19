@@ -138,7 +138,7 @@ async def download_resource(
 
         # 确保 tmp 目录存在
         if tmp_dir is None:
-            tmp_dir = Path.home() / ".ccbot" / "tmp"
+            raise ValueError("tmp_dir is required")
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         # 清理 24h 前的旧文件

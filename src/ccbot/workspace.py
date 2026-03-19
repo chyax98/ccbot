@@ -23,13 +23,11 @@ class WorkspaceManager:
       .claude/settings.json  — 项目级工具权限
       .claude/skills/        — 可复用技能
 
-    运行时状态统一放在 workspace/.ccbot/ 下：
-      .ccbot/memory/         — Supervisor 本地长期/短期记忆
-      .ccbot/schedules/      — 定时任务持久化
-      .ccbot/dedup/          — 飞书去重缓存
-      .ccbot/tmp/            — 飞书临时文件
-
-    其他动态文件：
+    运行时状态统一放在 workspace 根目录下：
+      memory/                — Supervisor 本地长期/短期记忆
+      schedules/             — 定时任务持久化
+      dedup/                 — 飞书去重缓存
+      tmp/                   — 飞书临时文件
       output/                — 生成文件输出目录
 
     Worker 不复用主 workspace；Worker 直接以各自 task.cwd 作为运行目录。
@@ -39,7 +37,6 @@ class WorkspaceManager:
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser().resolve()
         self._init()
-        self._migrate_legacy()
 
     def _init(self) -> None:
         """首次运行：将 templates/ 下的文件复制到 workspace，已存在的跳过。"""
@@ -87,17 +84,18 @@ class WorkspaceManager:
 
     @property
     def runtime_dir(self) -> Path:
-        return self.path / ".ccbot"
+        """运行时目录（与 workspace 根目录相同）。"""
+        return self.path
 
     @property
     def dedup_dir(self) -> Path:
         """飞书去重缓存目录。"""
-        return self.runtime_dir / "dedup"
+        return self.path / "dedup"
 
     @property
     def tmp_dir(self) -> Path:
         """飞书临时文件目录。"""
-        return self.runtime_dir / "tmp"
+        return self.path / "tmp"
 
     def build_system_prompt(self) -> str:
         """注入静态内容：workspace 路径 + 当前日期。日期天级精度，KV cache 友好。"""

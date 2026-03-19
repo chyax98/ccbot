@@ -90,7 +90,7 @@ class FeishuChannel(Channel):
         super().__init__()
         self.config = config
         self._output_dir = output_dir
-        self._dedup_dir = dedup_dir or Path.home() / ".ccbot" / "dedup"
+        self._dedup_dir = dedup_dir
         self._tmp_dir = tmp_dir
 
         # Pipeline 组件
