@@ -277,7 +277,8 @@ async def _worker_actor(task_def, info, queue, ready):
 
 - `_memory_turn_date()` 只保留日期，不带秒级时间戳
 - `_strip_runtime_context()` 过滤 `<runtime_context>` 块再存入记忆
-- 日期注入放在 `<runtime_context>` 内，每天只变一次
+- 日期注入放在 `system_prompt` 的 `<runtime_metadata>` 内，每天只变一次
+- memory 使用结构化 `reference-only` 标签注入，默认 bootstrap 模板不进入 prompt
 
 **思想**：记忆系统的核心矛盾是"上下文保留"与"KV cache 命中率"。稳定的 prompt 前缀命中 cache，变化的部分集中在尾部。
 

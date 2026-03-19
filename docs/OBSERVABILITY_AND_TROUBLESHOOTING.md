@@ -129,8 +129,8 @@ export LANGSMITH_PROJECT=ccbot-dev
 
 检查：
 
-- `workspace/.ccbot/memory/long_term.md`
-- `workspace/.ccbot/memory/conversations/<chat>.json`
+- `workspace/memory/long_term.md`
+- `workspace/memory/conversations/<chat>.json`
 - 当前 chat id 是否变化
 
 ### 4.6 `/workers` 看不到执行体

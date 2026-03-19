@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Prompt 注入链路收敛** — 重新整理 `preset -> project CLAUDE -> runtime metadata/reference context -> role prompt -> extra prompt` 的顺序，去掉 runtime 对宿主机 `user` 级 Claude settings 的依赖，减少 authority 混乱并提升可复现性。(`runtime/profiles.py`, `runtime/pool.py`, `templates/.claude/CLAUDE.md`, `templates/prompts/*.md`)
+- **记忆注入结构化与转义** — `MemoryStore` 现以 `reference-only` 结构化块注入长期/短期记忆，对内容做转义，并跳过默认 bootstrap 模板，避免 memory 与角色指令混写、降低 prompt injection 风险并减少无效 token。(`memory.py`)
+- **Worker prompt 绑定真实 cwd** — `WorkerPool._create_client()` 现使用解析后的实际工作目录注入 Claude SDK 与 role prompt，避免 `cwd='.'` 时 prompt、项目 settings、实际执行目录三者不一致。(`runtime/worker_pool.py`)
+- **CLI 单次 worker 链路去重** — `ccbot worker` 不再额外覆写一整段自定义 system prompt，改为在现有 worker role prompt 之上追加最小的单次执行说明。(`cli.py`)
+
 ### Changed
 
 - **目录结构简化** — workspace 扁平化，移除 `workspace/.ccbot/` 嵌套层级。新结构：

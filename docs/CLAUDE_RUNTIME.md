@@ -1,6 +1,6 @@
 # Claude Runtime
 
-> 更新时间：2026-03-14
+> 更新时间：2026-03-20
 > 作用：统一说明 Claude Agent SDK、`ClaudeSDKClient`、runtime profile、prompt 分层、memory、SDK in-process tools 的设计与落地方式。
 
 ## 1. `ClaudeSDKClient` 在链路里的真实作用
@@ -56,6 +56,12 @@
 - `.claude/settings.json`
 - `.claude/skills/`
 
+这样做的原因是：
+
+- 保持 runtime 行为可复现
+- 避免宿主机 `~/.claude/*` 把个人偏好或隐藏规则注入 bot runtime
+- 让 prompt/source of truth 尽量留在仓库内可审查的文件里
+
 ### 2.3 角色配置集中管理
 
 当前 `Supervisor / Worker / Reviewer` 的 runtime profile 集中在：
@@ -72,7 +78,7 @@
 
 ## 3. Prompt 分层策略
 
-当前建议长期维持三层：
+当前建议长期维持五层：
 
 ### 第 1 层：Claude Code preset
 
@@ -85,16 +91,37 @@
 
 作用：
 
-- 承载项目规则
+- 承载跨角色共享的项目规则
 - 承载 channel / 输出 / 调度边界等长期约束
 - 承载 skills 的工作约定
 
-### 第 3 层：role prompt
+### 第 3 层：runtime metadata / reference context
+
+作用：
+
+- 注入 workspace 路径、当前日期等动态但低频变化的信息
+- 注入 memory 等参考上下文
+- 这些内容是参考数据，不应与 role 指令混成一层语义
+
+实现约束：
+
+- 尽量使用结构化标签
+- 尽量保持低频变化，友好 KV cache
+- 记忆内容按 `reference-only` 处理，不作为新的最高优先级指令
+
+### 第 4 层：role prompt
 
 作用：
 
 - 定义 Supervisor / Worker / Reviewer 的职责边界
 - 定义当前 runtime 的产品化规则
+
+### 第 5 层：extra prompt
+
+作用：
+
+- 只承载极少量调用方追加的高优先级补充说明
+- 不应该承载大段共享规则或 memory 数据
 
 ## 4. 当前角色模型
 
@@ -159,6 +186,8 @@
 
 - 不完全依赖 Claude 官方召回
 - 让产品拥有可检查、可编辑、可纠正的本地记忆面
+- memory 注入采用结构化 `reference-only` 上下文，而不是与角色指令混写
+- 默认 bootstrap 模板不注入 prompt，避免空白项目也携带无效 boilerplate
 
 ## 7. SDK In-Process MCP Tools
 

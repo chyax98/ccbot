@@ -112,8 +112,8 @@ Scheduler 负责：
 
 当前只给 Supervisor 额外记忆：
 
-- `workspace/.ccbot/memory/long_term.md`
-- `workspace/.ccbot/memory/conversations/<chat>.json`
+- `workspace/memory/long_term.md`
+- `workspace/memory/conversations/<chat>.json`
 
 能力包括：
 
