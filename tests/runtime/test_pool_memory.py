@@ -49,6 +49,7 @@ async def test_create_client_uses_resume_session_for_supervisor(
     assert options_seen["resume"] == "sess-123"
     assert options_seen["continue_conversation"] is True
     assert "## 短期记忆（最近对话）" not in options_seen["system_prompt"].get("append", "")
+    assert "<memory_context" not in options_seen["system_prompt"].get("append", "")
 
 
 @pytest.mark.asyncio
@@ -84,5 +85,6 @@ async def test_create_client_injects_memory_prompt(monkeypatch, tmp_path: Path) 
     await pool._create_client("chat-1")
 
     append = options_seen["system_prompt"]["append"]
-    assert "ccbot Memory Context" in append
+    assert "<memory_context" in append
     assert "你好" in append
+    assert append.index("<memory_context") < append.index("## 你的角色：项目总控")

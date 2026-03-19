@@ -274,14 +274,15 @@ def worker(
         model=model,
         max_turns=max_turns,
         cwd=cwd_resolved,
-        system_prompt=(
-            f"You are a focused AI coding assistant.\n"
-            f"Working directory: {cwd_resolved}\n"
-            f"Complete the assigned task thoroughly. When done, write a clear markdown "
-            f"summary of what you accomplished to: {out_path}"
+    )
+    agent = CCBotAgent(
+        cfg,
+        role=RuntimeRole.WORKER,
+        extra_system_prompt=(
+            "This is a single-run worker invocation.\n"
+            f"When done, write a clear markdown summary of what you accomplished to: {out_path}"
         ),
     )
-    agent = CCBotAgent(cfg, role=RuntimeRole.WORKER)
 
     async def run_worker() -> None:
         await agent.start()

@@ -165,7 +165,7 @@ class TestAgentPool:
         assert options_seen["system_prompt"]["preset"] == "claude_code"
         assert "System prompt" in options_seen["system_prompt"]["append"]
         assert "Supervisor rules" in options_seen["system_prompt"]["append"]
-        assert options_seen["setting_sources"] == ["user", "project"]
+        assert options_seen["setting_sources"] == ["project"]
         assert options_seen["disallowed_tools"] == ["Agent", "SendMessage"]
         assert callable(options_seen["stderr"])
         assert options_seen["cwd"] == str(mock_workspace.path)
@@ -194,7 +194,7 @@ class TestAgentPool:
         ):
             await pool._create_client("chat_123")
 
-        assert options_seen["setting_sources"] == ["user", "project"]
+        assert options_seen["setting_sources"] == ["project"]
         assert options_seen["disallowed_tools"] == ["Agent", "SendMessage"]
         assert callable(options_seen["stderr"])
         assert options_seen["settings"] == '{"env": {"FOO": "BAR"}}'
@@ -235,7 +235,9 @@ class TestAgentPool:
         assert "chat_123" in pool._stderr_captures
 
     @pytest.mark.asyncio
-    async def test_create_client_clears_claudecode_env(self, mock_config, mock_workspace):
+    async def test_create_client_clears_claude_code_host_env(
+        self, mock_config, mock_workspace
+    ):
         pool = AgentPool(mock_config, mock_workspace, idle_timeout=60)
 
         class DummyOptions:
@@ -246,7 +248,15 @@ class TestAgentPool:
         dummy_client.connect = AsyncMock()
 
         with (
-            patch.dict("os.environ", {"CLAUDECODE": "1"}, clear=False),
+            patch.dict(
+                "os.environ",
+                {
+                    "CLAUDECODE": "1",
+                    "CLAUDE_CODE_SSE_PORT": "51194",
+                    "CLAUDE_CODE_REMOTE_SESSION_ID": "sess_123",
+                },
+                clear=False,
+            ),
             patch("claude_agent_sdk.ClaudeAgentOptions", DummyOptions),
             patch("claude_agent_sdk.ClaudeSDKClient", return_value=dummy_client),
         ):
@@ -255,3 +265,5 @@ class TestAgentPool:
         import os
 
         assert "CLAUDECODE" not in os.environ
+        assert "CLAUDE_CODE_SSE_PORT" not in os.environ
+        assert "CLAUDE_CODE_REMOTE_SESSION_ID" not in os.environ

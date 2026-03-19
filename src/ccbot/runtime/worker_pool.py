@@ -316,13 +316,14 @@ class WorkerPool:
 
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
-        _setup_worker_workspace(task.cwd)
+        resolved_cwd = self._resolve_cwd(task.cwd)
+        _setup_worker_workspace(resolved_cwd)
 
         model = task.model or self._base_config.model
         kwargs = build_sdk_options(
             self._base_config,
             role=RuntimeRole.WORKER,
-            cwd=task.cwd,
+            cwd=resolved_cwd,
             model=model,
             max_turns=task.max_turns,
         )

@@ -8,6 +8,7 @@ import contextvars
 import re
 from collections.abc import Awaitable, Callable
 from typing import Any
+from xml.sax.saxutils import escape
 
 from loguru import logger
 
@@ -168,7 +169,9 @@ class AgentTeam:
         context_parts: list[str] = []
         worker_status = self._worker_pool.format_status(owner_id=chat_id)
         if worker_status:
-            context_parts.append(worker_status)
+            context_parts.append(
+                "<worker_status>\n" + escape(worker_status) + "\n</worker_status>"
+            )
 
         if context_parts:
             context_block = (

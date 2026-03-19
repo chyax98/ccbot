@@ -34,6 +34,7 @@ def test_templates_not_overwritten(ws: WorkspaceManager) -> None:
 
 def test_build_system_prompt_contains_workspace_path(ws: WorkspaceManager) -> None:
     prompt = ws.build_system_prompt()
+    assert "<runtime_metadata>" in prompt
     assert str(ws.path) in prompt
 
 

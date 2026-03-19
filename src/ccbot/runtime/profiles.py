@@ -41,19 +41,19 @@ _ROLE_PROFILES: dict[RuntimeRole, RuntimeRoleProfile] = {
     RuntimeRole.SUPERVISOR: RuntimeRoleProfile(
         role=RuntimeRole.SUPERVISOR,
         permission_mode="bypassPermissions",
-        setting_sources=("user", "project"),
+        setting_sources=("project",),
         disallowed_tools=("Agent", "SendMessage"),
     ),
     RuntimeRole.WORKER: RuntimeRoleProfile(
         role=RuntimeRole.WORKER,
         permission_mode="bypassPermissions",
-        setting_sources=("user", "project"),
+        setting_sources=("project",),
         disallowed_tools=("Agent", "SendMessage"),
     ),
     RuntimeRole.REVIEWER: RuntimeRoleProfile(
         role=RuntimeRole.REVIEWER,
         permission_mode="plan",
-        setting_sources=("user", "project"),
+        setting_sources=("project",),
         disallowed_tools=("Agent", "SendMessage"),
     ),
 }
@@ -90,6 +90,7 @@ def build_sdk_options(
     role: RuntimeRole,
     cwd: str | Path,
     base_prompt: str = "",
+    context_prompt: str = "",
     extra_prompt: str = "",
     model: str = "",
     max_turns: int | None = None,
@@ -98,8 +99,14 @@ def build_sdk_options(
 ) -> dict[str, Any]:
     """构造 ClaudeAgentOptions 的 kwargs。"""
     profile = _ROLE_PROFILES[role]
+    # Layering strategy:
+    # 1. base_prompt: runtime metadata / static bootstrap
+    # 2. context_prompt: low-trust reference context such as memory
+    # 3. role prompt: authoritative runtime behavior for this role
+    # 4. extra_prompt: caller-supplied high-priority additions
     append_prompt = join_prompt_parts(
         base_prompt,
+        context_prompt,
         render_role_prompt(role, cwd=cwd),
         extra_prompt,
     )

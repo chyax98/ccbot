@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 from loguru import logger
 
@@ -101,5 +102,11 @@ class WorkspaceManager:
         """注入静态内容：workspace 路径 + 当前日期。日期天级精度，KV cache 友好。"""
         from datetime import datetime
 
-        current_date = datetime.now().strftime("%Y-%m-%d (%A)")
-        return f"Workspace: {self.path}\nCurrent date: {current_date}"
+        current_date = datetime.now().date().isoformat()
+        workspace = escape(str(self.path))
+        return (
+            "<runtime_metadata>\n"
+            f"<workspace_path>{workspace}</workspace_path>\n"
+            f"<current_date>{current_date}</current_date>\n"
+            "</runtime_metadata>"
+        )

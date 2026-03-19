@@ -26,15 +26,35 @@ if TYPE_CHECKING:
     from claude_agent_sdk import ClaudeSDKClient
 
 _CLEANUP_CHECK_INTERVAL = 60
+_CLAUDE_CODE_HOST_ENV_KEYS = frozenset(
+    {
+        "CLAUDECODE",
+        # Host Claude Code sessions may export their own control-plane transport.
+        # Nested SDK subprocesses must bootstrap a fresh transport instead of
+        # inheriting the parent's live session wiring.
+        "CLAUDE_CODE_SSE_PORT",
+        "CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR",
+        "CLAUDE_CODE_SESSION_ACCESS_TOKEN",
+        "CLAUDE_CODE_REMOTE_SESSION_ID",
+        "CLAUDE_CODE_REMOTE",
+        "CLAUDE_CODE_TEAMMATE_COMMAND",
+        "CLAUDE_CODE_PLAN_MODE_REQUIRED",
+    }
+)
 
 
 def _sanitize_sdk_host_env() -> None:
     """Remove host-side env vars that can break nested Claude Code startup."""
     import os
 
-    for key in ("CLAUDECODE",):
+    removed = []
+    for key in _CLAUDE_CODE_HOST_ENV_KEYS:
         if key in os.environ:
+            removed.append(key)
             del os.environ[key]
+
+    if removed:
+        logger.debug("移除宿主 Claude Code 环境变量: {}", ", ".join(sorted(removed)))
 
 
 class AgentPool:
@@ -198,14 +218,13 @@ class AgentPool:
             else:
                 memory_prompt = self._memory_store.build_memory_prompt(chat_id)
 
-        extra_prompt = join_prompt_parts(memory_prompt, self._extra_system_prompt)
-
         kwargs = build_sdk_options(
             self._config,
             role=self._role,
             cwd=cwd,
             base_prompt=base_prompt,
-            extra_prompt=extra_prompt,
+            context_prompt=memory_prompt,
+            extra_prompt=self._extra_system_prompt,
             model=self._config.model,
             max_turns=self._config.max_turns,
             allowed_tools=self._config.allowed_tools or None,
