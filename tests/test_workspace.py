@@ -16,10 +16,6 @@ def test_workspace_dir_created_on_init(ws: WorkspaceManager) -> None:
     assert ws.path.is_dir()
 
 
-def test_heartbeat_file_path(ws: WorkspaceManager) -> None:
-    assert ws.heartbeat_file == ws.path / "HEARTBEAT.md"
-
-
 def test_templates_copied_on_init(ws: WorkspaceManager) -> None:
     # templates/.claude/settings.json 应已复制
     settings = ws.path / ".claude" / "settings.json"
@@ -41,14 +37,12 @@ def test_build_system_prompt_contains_workspace_path(ws: WorkspaceManager) -> No
     assert str(ws.path) in prompt
 
 
-def test_build_system_prompt_no_time(ws: WorkspaceManager) -> None:
-    """时间改由 team.py 每轮注入 runtime_context，不应出现在 system prompt 中。"""
+def test_build_system_prompt_includes_date(ws: WorkspaceManager) -> None:
+    """日期应在 system prompt 中（天级精度，KV cache 友好）。"""
     import re
 
     prompt = ws.build_system_prompt()
-    assert not re.search(r"\d{4}-\d{2}-\d{2}", prompt), (
-        "time should not be in system prompt (injected per-turn in runtime_context)"
-    )
+    assert re.search(r"\d{4}-\d{2}-\d{2}", prompt), "system prompt should include current date"
 
 
 def test_build_system_prompt_is_concise(ws: WorkspaceManager) -> None:
@@ -72,10 +66,9 @@ def test_skip_template_dirs(tmp_path: Path) -> None:
 
 
 def test_migrate_legacy(tmp_path: Path) -> None:
-    """_migrate_legacy 应将旧目录数据 copy 到 workspace/.ccbot/ 下。"""
+    """_migrate_legacy 应将旧目录迁移到 workspace/.ccbot/ 并删除源目录。"""
     from unittest.mock import patch
 
-    # 模拟旧版 ~/.ccbot/ 结构
     fake_home = tmp_path / "fakehome"
     old_dedup = fake_home / ".ccbot" / "dedup"
     old_dedup.mkdir(parents=True)
@@ -84,16 +77,16 @@ def test_migrate_legacy(tmp_path: Path) -> None:
     with patch("ccbot.workspace.Path.home", return_value=fake_home):
         ws = WorkspaceManager(tmp_path / "ws_migrate")
 
-    # 检查迁移结果
+    # 数据已迁移到新位置
     new_dedup = ws.runtime_dir / "dedup"
     assert new_dedup.is_dir()
     assert (new_dedup / "feishu.json").exists()
-    # 旧目录未删除
-    assert old_dedup.is_dir()
+    # 旧目录已删除
+    assert not old_dedup.exists()
 
 
 def test_migrate_legacy_idempotent(tmp_path: Path) -> None:
-    """目标已存在时不应覆盖。"""
+    """目标已存在时不覆盖数据，但仍删除旧目录。"""
     from unittest.mock import patch
 
     fake_home = tmp_path / "fakehome"
@@ -105,7 +98,13 @@ def test_migrate_legacy_idempotent(tmp_path: Path) -> None:
         ws = WorkspaceManager(tmp_path / "ws_idem")
         # 修改目标内容
         (ws.runtime_dir / "dedup" / "feishu.json").write_text("new")
-        # 再次初始化不应覆盖
+        # 重建旧目录模拟残留
+        old_dedup.mkdir(parents=True, exist_ok=True)
+        (old_dedup / "feishu.json").write_text("stale")
+        # 再次初始化
         WorkspaceManager(ws.path)
 
+    # 目标数据未被覆盖
     assert (ws.runtime_dir / "dedup" / "feishu.json").read_text() == "new"
+    # 旧目录已删除
+    assert not old_dedup.exists()

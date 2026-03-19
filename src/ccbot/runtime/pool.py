@@ -54,7 +54,7 @@ class AgentPool:
         self._config = config
         self._workspace = workspace
         self._extra_system_prompt = extra_system_prompt
-        self._idle_timeout = idle_timeout if idle_timeout is not None else config.idle_timeout
+        self._explicit_idle_timeout = idle_timeout  # None = 从 config 动态读取
         self._output_format = output_format
         self._role = role
         self._memory_store = memory_store
@@ -66,6 +66,12 @@ class AgentPool:
         self._cleanup_task: asyncio.Task[None] | None = None
         self._stderr_captures: dict[str, object] = {}
         self._running = False
+
+    @property
+    def _idle_timeout(self) -> int:
+        if self._explicit_idle_timeout is not None:
+            return self._explicit_idle_timeout
+        return self._config.idle_timeout
 
     def set_sdk_mcp_servers(self, servers: dict[str, Any]) -> None:
         """延迟注入 SDK MCP servers（在 scheduler 初始化后调用）。"""

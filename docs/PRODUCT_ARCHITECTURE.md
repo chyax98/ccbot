@@ -38,7 +38,6 @@ AgentTeam
 共享基础设施：
 
 - `WorkspaceManager`
-- `HeartbeatService`
 - `RuntimeRoleProfile`
 - `LangSmith observability`
 

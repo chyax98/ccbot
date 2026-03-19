@@ -226,7 +226,7 @@ async def test_worker_status_injected_into_supervisor_prompt(team: AgentTeam) ->
 
 @pytest.mark.asyncio
 async def test_no_worker_status_when_pool_empty(team: AgentTeam) -> None:
-    """没有活跃 Worker 时不注入 worker 状态，但 runtime_context 始终含当前日期。"""
+    """没有活跃 Worker 时不注入 runtime_context（日期已在 system prompt 中）。"""
     team._supervisor = _mock_agent("直接回答")
     pool = _mock_worker_pool()
     pool.format_status = MagicMock(return_value="")
@@ -235,10 +235,8 @@ async def test_no_worker_status_when_pool_empty(team: AgentTeam) -> None:
     await team.ask("chat1", "你好")
 
     actual_prompt = team._supervisor.ask_run.call_args.args[1]
-    assert "<runtime_context>" in actual_prompt
-    assert "Current date:" in actual_prompt
+    assert "<runtime_context>" not in actual_prompt
     assert "你好" in actual_prompt
-    assert "当前活跃 Workers" not in actual_prompt
 
 
 # ---- Worker 复用 ----

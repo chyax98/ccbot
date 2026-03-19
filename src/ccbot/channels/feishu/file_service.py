@@ -52,7 +52,7 @@ async def upload_file(client: Any, path: Path) -> tuple[str, str] | None:
                 )
                 .build()
             )
-        response = await client.im.v1.image.acreate(request)
+            response = await client.im.v1.image.acreate(request)
         if not response.success():
             logger.error("上传图片失败: code={} msg={}", response.code, response.msg)
             return None
@@ -74,7 +74,7 @@ async def upload_file(client: Any, path: Path) -> tuple[str, str] | None:
                 )
                 .build()
             )
-        response = await client.im.v1.file.acreate(request)
+            response = await client.im.v1.file.acreate(request)
         if not response.success():
             logger.error("上传文件失败: code={} msg={}", response.code, response.msg)
             return None

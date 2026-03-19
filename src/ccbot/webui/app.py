@@ -12,9 +12,10 @@ from urllib.parse import parse_qs, quote_plus
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from loguru import logger
 
 from ccbot import __version__
-from ccbot.config import Config, load_config
+from ccbot.config import AgentConfig, Config, load_config
 from ccbot.models.schedule import ScheduledJob, ScheduleSpec
 from ccbot.scheduler import SchedulerService
 from ccbot.workspace import WorkspaceManager
@@ -31,6 +32,7 @@ def create_app(
     *,
     team: AgentTeam | None = None,
     scheduler: SchedulerService | None = None,
+    live_config: AgentConfig | None = None,
 ) -> FastAPI:
     """Create a local management console app.
 
@@ -40,7 +42,7 @@ def create_app(
 
     app = FastAPI(title="ccbot web console", version=__version__)
     templates = Jinja2Templates(directory=str(_TEMPLATES))
-    state = _WebConsoleState(config_path, team=team, scheduler=scheduler)
+    state = _WebConsoleState(config_path, team=team, scheduler=scheduler, live_config=live_config)
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request) -> HTMLResponse:
@@ -104,13 +106,14 @@ def create_app(
         except Exception as exc:
             return _redirect_with_message("/scheduler", error=f"创建失败: {exc}")
 
-        scheduler.create_job(
+        job = scheduler.create_job(
             spec,
             created_by="web-ui",
             channel="web",
             notify_target="",
             conversation_id="web-ui",
         )
+        logger.info("[WebUI] 创建定时任务: {} ({})", spec.name, job.job_id)
         return _redirect_with_message("/scheduler", notice=f"已创建定时任务: {spec.name}")
 
     @app.post("/scheduler/{job_id}/toggle")
@@ -126,6 +129,7 @@ def create_app(
         if not changed:
             return _redirect_with_message("/scheduler", error=f"更新失败: {job_id}")
         action = "暂停" if should_pause else "恢复"
+        logger.info("[WebUI] {}定时任务: {} ({})", action, job.name, job_id)
         return _redirect_with_message("/scheduler", notice=f"已{action}定时任务: {job.name}")
 
     @app.post("/scheduler/{job_id}/delete")
@@ -137,6 +141,7 @@ def create_app(
         if job is None:
             return _redirect_with_message("/scheduler", error=f"定时任务不存在: {job_id}")
         scheduler.delete_job(job_id)
+        logger.info("[WebUI] 删除定时任务: {} ({})", job.name, job_id)
         return _redirect_with_message("/scheduler", notice=f"已删除定时任务: {job.name}")
 
     @app.get("/config", response_class=HTMLResponse)
@@ -169,7 +174,13 @@ def create_app(
         except Exception as exc:
             return _redirect_with_message("/config", error=f"配置校验失败: {exc}")
         state.write_config_payload(payload)
-        return _redirect_with_message("/config", notice="配置文件已保存")
+        logger.info("[WebUI] 保存配置文件")
+        changed = state.reload_runtime_config(payload)
+        if changed:
+            notice = f"配置已保存并热重载: {', '.join(changed)}"
+        else:
+            notice = "配置文件已保存"
+        return _redirect_with_message("/config", notice=notice)
 
     @app.get("/agents", response_class=HTMLResponse)
     async def agents_page(request: Request) -> HTMLResponse:
@@ -229,6 +240,7 @@ def create_app(
         agent_config["env"] = payload
         Config.model_validate(raw_config)
         state.write_config_payload(raw_config)
+        logger.info("[WebUI] 保存 agent.env ({} 个变量)", len(payload))
         return _redirect_with_message("/env", notice="agent.env 已保存")
 
     @app.get("/files")
@@ -302,6 +314,21 @@ def create_app(
     return app
 
 
+_HOT_RELOADABLE_FIELDS: frozenset[str] = frozenset(
+    {
+        "scheduler_poll_interval_s",
+        "scheduler_job_timeout_s",
+        "worker_idle_timeout",
+        "max_pooled_workers",
+        "idle_timeout",
+        "max_workers",
+        "max_turns",
+        "model",
+        "short_term_memory_turns",
+    }
+)
+
+
 class _WebConsoleState:
     def __init__(
         self,
@@ -309,10 +336,12 @@ class _WebConsoleState:
         *,
         team: AgentTeam | None = None,
         scheduler: SchedulerService | None = None,
+        live_config: AgentConfig | None = None,
     ) -> None:
         self.config_path = config_path.expanduser().resolve()
         self._team = team
         self._live_scheduler = scheduler
+        self._live_config = live_config
 
     @property
     def embedded(self) -> bool:
@@ -347,6 +376,26 @@ class _WebConsoleState:
             "jobs": [job.model_dump() for job in jobs],
             "active_runs": sorted(self._live_scheduler.active_runs),
         }
+
+    def reload_runtime_config(self, new_payload: dict[str, Any]) -> list[str]:
+        """将新配置中可热重载的字段写入运行时 AgentConfig 对象。返回变更字段列表。"""
+        if self._live_config is None:
+            return []
+        new_agent = new_payload.get("agent", {})
+        if not isinstance(new_agent, dict):
+            return []
+        changed: list[str] = []
+        for field_name in _HOT_RELOADABLE_FIELDS:
+            if field_name not in new_agent:
+                continue
+            new_value = new_agent[field_name]
+            old_value = getattr(self._live_config, field_name, None)
+            if new_value != old_value:
+                setattr(self._live_config, field_name, new_value)
+                changed.append(field_name)
+        if changed:
+            logger.info("Config 热重载生效: {}", ", ".join(changed))
+        return changed
 
     def load_runtime_config(self) -> Config:
         return load_config(self.config_path)
@@ -558,7 +607,7 @@ class _WebConsoleState:
             },
             {
                 "name": "Config",
-                "purpose": "控制 model、workspace、worker 数量、scheduler/heartbeat 开关。",
+                "purpose": "控制 model、workspace、worker 数量、scheduler 开关。",
                 "storage": str(self.config_path),
                 "effect": "决定整个 runtime 的运行参数和外部注入。",
             },

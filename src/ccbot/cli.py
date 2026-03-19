@@ -19,7 +19,7 @@ from ccbot.observability import get_langsmith_status
 
 if TYPE_CHECKING:
     from ccbot.channels.base import Channel
-    from ccbot.config import Config
+    from ccbot.config import AgentConfig, Config
     from ccbot.scheduler import SchedulerService
     from ccbot.team import AgentTeam
     from ccbot.workspace import WorkspaceManager
@@ -244,7 +244,6 @@ def run(
     """启动机器人（Supervisor+Worker 多 Agent 模式）。"""
     from ccbot.channels.base import IncomingMessage
     from ccbot.config import load_config
-    from ccbot.heartbeat import HeartbeatService
     from ccbot.scheduler import SchedulerService
     from ccbot.team import AgentTeam
     from ccbot.workspace import WorkspaceManager
@@ -281,23 +280,11 @@ def run(
 
     channel.on_message_context(on_message)
 
-    async def heartbeat_execute(prompt: str) -> str:
-        return await team.ask("heartbeat", prompt)
-
-    async def heartbeat_notify(content: str) -> None:
-        target = config.agent.heartbeat_notify_chat_id or team.last_chat_id
-        if target:
-            await channel.send(target, content)
-        else:
-            logger.warning(
-                "心跳通知无目标 chat_id，已跳过（可在配置中设置 heartbeat_notify_chat_id）"
-            )
-
     async def schedule_execute(job) -> str:
         return await team.ask(job.runtime_chat_id, job.prompt)
 
     async def schedule_notify(job, content: str) -> None:
-        target = job.notify_target or config.agent.heartbeat_notify_chat_id or team.last_chat_id
+        target = job.notify_target or team.last_chat_id
         if target:
             await channel.send(target, content)
         else:
@@ -309,6 +296,7 @@ def run(
         schedule_notify,
         poll_interval_s=config.agent.scheduler_poll_interval_s,
         job_timeout_s=config.agent.scheduler_job_timeout_s,
+        config=config.agent,
     )
     team.set_scheduler(scheduler)
 
@@ -330,24 +318,17 @@ def run(
 
     async def main() -> None:
         await team.start()
-        heartbeat = None
         web_server: asyncio.Task[None] | None = None
         try:
             if config.agent.scheduler_enabled:
                 await scheduler.start()
-            if config.agent.heartbeat_enabled:
-                heartbeat = HeartbeatService(
-                    workspace.heartbeat_file,
-                    heartbeat_execute,
-                    heartbeat_notify,
-                    interval_s=config.agent.heartbeat_interval,
-                )
-                await heartbeat.start()
 
             # 嵌入 Web 控制台
             if web_port > 0:
                 web_server = asyncio.create_task(
-                    _run_embedded_web(config_path, team, scheduler, web_port),
+                    _run_embedded_web(
+                        config_path, team, scheduler, web_port, live_config=config.agent
+                    ),
                     name="embedded-web-console",
                 )
 
@@ -358,8 +339,6 @@ def run(
                 web_server.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await web_server
-            if heartbeat is not None:
-                heartbeat.stop()
             if config.agent.scheduler_enabled:
                 await scheduler.stop()
             await channel.stop()
@@ -400,13 +379,15 @@ async def _run_embedded_web(
     team: AgentTeam,
     scheduler: SchedulerService,
     port: int,
+    *,
+    live_config: AgentConfig | None = None,
 ) -> None:
     """在 ccbot run 进程内以后台 task 运行 Web 控制台。"""
     import uvicorn
 
     from ccbot.webui import create_app
 
-    web_app = create_app(config_path, team=team, scheduler=scheduler)
+    web_app = create_app(config_path, team=team, scheduler=scheduler, live_config=live_config)
     server_config = uvicorn.Config(web_app, host="127.0.0.1", port=port, log_level="warning")
     server = uvicorn.Server(server_config)
     await server.serve()

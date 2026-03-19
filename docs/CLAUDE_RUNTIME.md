@@ -210,7 +210,7 @@ ClaudeAgentOptions
 ### 7.5 扩展方向
 
 - Worker 管理工具化（`worker_list` 等）
-- 更多 runtime 能力暴露为工具（memory 操作、heartbeat 管理等）
+- 更多 runtime 能力暴露为工具（memory 操作等）
 
 ## 8. 对产品设计的直接启发
 

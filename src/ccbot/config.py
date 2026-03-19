@@ -41,11 +41,6 @@ class AgentConfig(BaseModel):
     scheduler_poll_interval_s: int = 30
     scheduler_job_timeout_s: int = 1800  # 单个定时任务执行超时（秒），默认 30 分钟
 
-    # Heartbeat 配置
-    heartbeat_enabled: bool = True
-    heartbeat_interval: int = 1800  # 秒，默认 30 分钟
-    heartbeat_notify_chat_id: str = ""  # 心跳结果通知目标，空则用最近活跃会话
-
     # Worker 模式配置（供 ccbot worker 命令使用）
     system_prompt: str = ""  # 直接指定 system prompt，非空时跳过 workspace 构建
     cwd: str = ""  # 工作目录覆盖（仅供 ccbot worker CLI 命令使用），非空时替代 workspace.path

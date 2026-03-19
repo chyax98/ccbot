@@ -56,7 +56,6 @@ Channel 层负责：
     .ccbot/
       memory/
       schedules/
-    HEARTBEAT.md
     output/
 ```
 
@@ -162,8 +161,6 @@ CLI 预演是当前最推荐的回归入口。
 - `max_workers`
 - `scheduler_enabled`
 - `scheduler_poll_interval_s`
-- `heartbeat_enabled`
-- `heartbeat_interval`
 - `supervisor_resume_enabled`
 - `short_term_memory_turns`
 - `langsmith_*`
@@ -181,22 +178,13 @@ CLI 预演是当前最推荐的回归入口。
 - `ws_reconnect_delay_s`
 - `ws_reconnect_max_delay_s`
 
-## 9. Heartbeat 与 Schedule 的分工
+## 9. 定时任务（Scheduler）
 
-### Heartbeat
-
-适合：
-
-- 固定巡检
-- 长期维护任务
-- `HEARTBEAT.md` 驱动的轻量周期任务
-
-### Scheduler
-
-适合：
+所有定时执行需求统一由 `SchedulerService` 管理：
 
 - 用户通过自然语言创建的周期性任务
-- 需要持久化、列出、暂停、恢复、立即执行的任务
+- 需要持久化、列出、编辑、暂停、恢复、立即执行的任务
+- Supervisor 通过 SDK MCP tools（`schedule_list/create/edit/delete/pause/resume`）操作
 
 ### 不适合强行落成 schedule 的请求
 

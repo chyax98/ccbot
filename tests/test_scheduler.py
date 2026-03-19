@@ -335,3 +335,37 @@ def test_scheduler_delete_job_by_system_key(tmp_path: Path) -> None:
     assert scheduler.delete_job_by_system_key("reports.weekly") is True
     assert scheduler.get_job(job.job_id) is None
     assert scheduler.delete_job_by_system_key("reports.weekly") is False
+
+
+def test_scheduler_config_hot_reload(tmp_path: Path) -> None:
+    """传入 config 后，poll_interval 和 job_timeout 应动态跟踪 config 变化。"""
+    from ccbot.config import AgentConfig
+
+    config = AgentConfig(scheduler_poll_interval_s=10, scheduler_job_timeout_s=600)
+    scheduler = SchedulerService(
+        tmp_path,
+        lambda job: None,  # type: ignore[arg-type, return-value]
+        lambda job, content: None,  # type: ignore[arg-type, return-value]
+        config=config,
+    )
+    assert scheduler._poll_interval == 10
+    assert scheduler._job_timeout == 600
+
+    # 模拟热重载
+    config.scheduler_poll_interval_s = 5
+    config.scheduler_job_timeout_s = 300
+    assert scheduler._poll_interval == 5
+    assert scheduler._job_timeout == 300
+
+
+def test_scheduler_fallback_without_config(tmp_path: Path) -> None:
+    """不传 config 时使用构造函数的默认值。"""
+    scheduler = SchedulerService(
+        tmp_path,
+        lambda job: None,  # type: ignore[arg-type, return-value]
+        lambda job, content: None,  # type: ignore[arg-type, return-value]
+        poll_interval_s=15,
+        job_timeout_s=900,
+    )
+    assert scheduler._poll_interval == 15
+    assert scheduler._job_timeout == 900

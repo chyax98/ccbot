@@ -30,8 +30,6 @@ class TestAgentConfig:
         assert config.langsmith_name == "ccbot"
         assert config.langsmith_tags == []
         assert config.langsmith_metadata == {}
-        assert config.heartbeat_enabled is True
-        assert config.heartbeat_interval == 1800
 
     def test_custom_values(self) -> None:
         config = AgentConfig(

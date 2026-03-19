@@ -51,7 +51,6 @@ def _build_metadata(config: AgentConfig) -> dict[str, Any]:
         "max_turns": config.max_turns,
         "max_workers": config.max_workers,
         "scheduler_enabled": config.scheduler_enabled,
-        "heartbeat_enabled": config.heartbeat_enabled,
     }
     metadata.update(config.langsmith_metadata)
     return metadata

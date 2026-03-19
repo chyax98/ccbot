@@ -89,15 +89,21 @@ class WorkerPool:
     def __init__(self, base_config: AgentConfig, workspace_path: Path | None = None) -> None:
         self._base_config = base_config
         self._workspace_path = workspace_path
-        self._idle_timeout = base_config.worker_idle_timeout
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._info: dict[str, WorkerInfo] = {}
         self._actors: dict[str, _WorkerActor] = {}
         self._cleanup_task: asyncio.Task[None] | None = None
         self._stderr_captures: dict[str, object] = {}
         self._running = False
-        self._max_pooled_workers = base_config.max_pooled_workers
         self._registry_lock = asyncio.Lock()
+
+    @property
+    def _idle_timeout(self) -> int:
+        return self._base_config.worker_idle_timeout
+
+    @property
+    def _max_pooled_workers(self) -> int:
+        return self._base_config.max_pooled_workers
 
     async def start(self) -> None:
         if self._running:

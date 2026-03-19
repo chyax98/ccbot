@@ -170,3 +170,56 @@ def test_webui_dashboard_embedded_mode(tmp_path: Path) -> None:
 
     workers = client.get("/api/workers").json()
     assert workers == []
+
+
+def test_webui_config_hot_reload_embedded(tmp_path: Path) -> None:
+    """嵌入模式下保存配置应热重载可变字段。"""
+    from unittest.mock import MagicMock
+
+    from ccbot.config import AgentConfig
+
+    workspace = WorkspaceManager(tmp_path / "workspace")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"agent": {"workspace": str(workspace.path)}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    live_config = AgentConfig(
+        workspace=str(workspace.path), max_workers=4, worker_idle_timeout=3600
+    )
+    mock_team = MagicMock()
+    mock_team.worker_pool.list_workers.return_value = []
+
+    async def _noop_execute(job):  # type: ignore[no-untyped-def]
+        return ""
+
+    async def _noop_notify(job, content):  # type: ignore[no-untyped-def]
+        pass
+
+    scheduler = SchedulerService(workspace.path, _noop_execute, _noop_notify)
+    client = TestClient(
+        create_app(config_path, team=mock_team, scheduler=scheduler, live_config=live_config)
+    )
+
+    # 修改可热重载字段
+    new_config = {
+        "agent": {
+            "workspace": str(workspace.path),
+            "max_workers": 8,
+            "worker_idle_timeout": 7200,
+            "scheduler_poll_interval_s": 60,
+        }
+    }
+    response = client.post(
+        "/config",
+        data={"config_text": json.dumps(new_config)},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert "热重载" in response.text
+
+    # 验证运行时配置已更新
+    assert live_config.max_workers == 8
+    assert live_config.worker_idle_timeout == 7200
+    assert live_config.scheduler_poll_interval_s == 60

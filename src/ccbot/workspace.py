@@ -30,7 +30,6 @@ class WorkspaceManager:
       .ccbot/tmp/            — 飞书临时文件
 
     其他动态文件：
-      HEARTBEAT.md           — 心跳任务入口
       output/                — 生成文件输出目录
 
     Worker 不复用主 workspace；Worker 直接以各自 task.cwd 作为运行目录。
@@ -60,24 +59,26 @@ class WorkspaceManager:
                     logger.debug("初始化: {}", rel)
 
     def _migrate_legacy(self) -> None:
-        """迁移旧版 ~/.ccbot/ 下散落的运行时目录到 workspace/.ccbot/。
-
-        幂等操作：仅在源存在且目标不存在时执行 copy，不删除旧目录。
-        """
+        """迁移旧版 ~/.ccbot/ 下散落的运行时目录到 workspace/.ccbot/，完成后删除源目录。"""
         legacy_root = Path.home() / ".ccbot"
         for dirname in ("dedup", "tmp"):
             src = legacy_root / dirname
+            if not src.is_dir():
+                continue
             dst = self.runtime_dir / dirname
-            if src.is_dir() and not dst.exists():
+            if not dst.exists():
                 try:
                     shutil.copytree(src, dst)
                     logger.info("迁移旧目录: {} → {}", src, dst)
                 except OSError as exc:
                     logger.warning("迁移旧目录失败: {} → {} ({})", src, dst, exc)
-
-    @property
-    def heartbeat_file(self) -> Path:
-        return self.path / "HEARTBEAT.md"
+                    continue
+            # 目标已存在（迁移完成或之前已迁移），删除旧目录
+            try:
+                shutil.rmtree(src)
+                logger.info("已删除旧版目录: {}", src)
+            except OSError as exc:
+                logger.warning("删除旧版目录失败: {} ({})", src, exc)
 
     @property
     def output_dir(self) -> Path:
@@ -99,5 +100,8 @@ class WorkspaceManager:
         return self.runtime_dir / "tmp"
 
     def build_system_prompt(self) -> str:
-        """注入静态内容：workspace 路径。当前时间由 team.py 每轮注入 runtime_context。"""
-        return f"Workspace: {self.path}"
+        """注入静态内容：workspace 路径 + 当前日期。日期天级精度，KV cache 友好。"""
+        from datetime import datetime
+
+        current_date = datetime.now().strftime("%Y-%m-%d (%A)")
+        return f"Workspace: {self.path}\nCurrent date: {current_date}"

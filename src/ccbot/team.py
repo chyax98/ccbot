@@ -7,7 +7,6 @@ import contextlib
 import contextvars
 import re
 from collections.abc import Awaitable, Callable
-from datetime import datetime
 from typing import Any
 
 from loguru import logger
@@ -165,16 +164,19 @@ class AgentTeam:
         # 设置当前 task 的请求上下文（ContextVar 隔离并发请求）
         _current_request_context.set(request_context or {})
 
-        # 当前日期始终注入：保留基础时间语义，同时降低分钟级抖动对 KV cache 的影响
-        current_date = datetime.now().strftime("%Y-%m-%d (%A)")
-        context_parts = [f"Current date: {current_date}"]
-
+        # runtime_context 仅在有动态内容时注入（日期已在 system prompt 中）
+        context_parts: list[str] = []
         worker_status = self._worker_pool.format_status(owner_id=chat_id)
         if worker_status:
             context_parts.append(worker_status)
 
-        context_block = "<runtime_context>\n" + "\n\n".join(context_parts) + "\n</runtime_context>"
-        enhanced_prompt = f"{context_block}\n\n{prompt}"
+        if context_parts:
+            context_block = (
+                "<runtime_context>\n" + "\n\n".join(context_parts) + "\n</runtime_context>"
+            )
+            enhanced_prompt = f"{context_block}\n\n{prompt}"
+        else:
+            enhanced_prompt = prompt
 
         if on_progress:
             await on_progress("📋 分析任务中...")

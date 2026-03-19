@@ -16,6 +16,7 @@ from croniter import croniter  # type: ignore[import-untyped]
 from loguru import logger
 from pydantic import ValidationError
 
+from ccbot.config import AgentConfig
 from ccbot.models.schedule import ScheduledJob, ScheduleSpec
 
 ExecuteCallback = Callable[[ScheduledJob], Awaitable[str]]
@@ -38,20 +39,33 @@ class SchedulerService:
         on_notify: NotifyCallback,
         poll_interval_s: int = 30,
         job_timeout_s: int = 1800,
+        *,
+        config: AgentConfig | None = None,
     ) -> None:
         self._root = workspace_path / ".ccbot" / "schedules"
         self._root.mkdir(parents=True, exist_ok=True)
         self._jobs_file = self._root / "jobs.json"
         self._on_execute = on_execute
         self._on_notify = on_notify
-        self._poll_interval = poll_interval_s
-        self._job_timeout = job_timeout_s
+        self._config = config
+        self._default_poll_interval = poll_interval_s
+        self._default_job_timeout = job_timeout_s
         self._running = False
         self._task: asyncio.Task[None] | None = None
         self._run_tasks: set[asyncio.Task[None]] = set()
         self._active_runs: set[str] = set()
         self._jobs: dict[str, ScheduledJob] = {}
         self._load_jobs()
+
+    @property
+    def _poll_interval(self) -> int:
+        return (
+            self._config.scheduler_poll_interval_s if self._config else self._default_poll_interval
+        )
+
+    @property
+    def _job_timeout(self) -> int:
+        return self._config.scheduler_job_timeout_s if self._config else self._default_job_timeout
 
     @property
     def active_runs(self) -> frozenset[str]:

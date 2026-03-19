@@ -22,7 +22,6 @@ src/ccbot/
 ├── team.py               # AgentTeam: Supervisor-Worker 编排中枢
 ├── scheduler.py          # SchedulerService: 轻量 cron 调度器
 ├── memory.py             # MemoryStore: 三层记忆系统
-├── heartbeat.py          # HeartbeatService: 定时巡检
 ├── workspace.py          # WorkspaceManager: 工作空间管理
 ├── observability.py      # LangSmith 可观测性集成
 │
@@ -441,7 +440,6 @@ JSON 文件 (~/.ccbot/config.json) > 环境变量 (CCBOT_*) > 默认值
 | `max_pooled_workers` | 8 | Worker 池上限 |
 | `short_term_memory_turns` | 12 | 短期记忆保留轮数 |
 | `scheduler_poll_interval_s` | 30 | 定时任务检查间隔 |
-| `heartbeat_interval` | 1800 | 心跳巡检间隔（30 分钟） |
 | `progress_silent_s` | 30 | 进度消息静默期 |
 | `confirm_timeout_s` | 300 | 确认按钮超时 |
 | `msg_process_timeout_s` | 600 | 消息处理超时 |
@@ -469,14 +467,12 @@ team.set_scheduler(scheduler)  # 注入 SDK MCP tools
 # 启动顺序
 await team.start()          # AgentPool + WorkerPool
 await scheduler.start()     # 定时任务轮询
-await heartbeat.start()     # 心跳巡检
 web_server = create_task()  # 嵌入式 Web 控制台
 await channel.start()       # 开始接收消息
 await channel.wait_closed() # 阻塞直到关闭
 
 # 关闭顺序（与启动相反）
 web_server.cancel()
-heartbeat.stop()
 scheduler.stop()
 channel.stop()
 team.stop()
@@ -512,7 +508,6 @@ tests/
 │   └── test_observability.py   # LangSmith 配置
 ├── test_agent.py        # CCBotAgent 多轮对话
 ├── test_config.py       # 配置加载
-├── test_heartbeat_service.py   # 心跳服务
 ├── test_memory.py       # 记忆系统
 ├── test_scheduler.py    # 定时任务
 ├── test_team.py         # AgentTeam 编排
