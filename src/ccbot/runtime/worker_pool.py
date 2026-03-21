@@ -22,7 +22,12 @@ from ccbot.models import WorkerTask
 from ccbot.observability import configure_langsmith_once
 from ccbot.runtime.pool import _sanitize_sdk_host_env
 from ccbot.runtime.profiles import RuntimeRole, build_sdk_options
-from ccbot.runtime.sdk_utils import build_stderr_capture, is_retryable_sdk_error, query_and_collect
+from ccbot.runtime.sdk_utils import (
+    build_stderr_capture,
+    get_sdk_connect_semaphore,
+    is_retryable_sdk_error,
+    query_and_collect,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -191,11 +196,10 @@ class WorkerPool:
         """预加载所有 Worker，确保它们在返回前都已就绪。
 
         用于防止后台派发时，消息队列认为处理已完成，导致并发创建 Worker。
+        SDK 连接已通过全局信号量串行化，无需额外延迟。
         """
         for task in tasks:
             await self.get_or_create(task, owner_id=owner_id)
-            # 短暂等待确保 Worker 完全初始化
-            await asyncio.sleep(0.1)
         logger.info("预加载完成: {} 个 Worker (owner={})", len(tasks), owner_id or "-")
 
     async def send(
@@ -334,10 +338,12 @@ class WorkerPool:
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
         self._stderr_captures[capture_key] = stderr_capture
-        try:
-            await client.connect()
-        except Exception:
-            raise
+        # 使用全局信号量串行化连接，避免 SDK 并发初始化竞争
+        async with get_sdk_connect_semaphore():
+            try:
+                await client.connect()
+            except Exception:
+                raise
         return client
 
     async def _cleanup_loop(self) -> None:

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -23,6 +24,19 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from claude_agent_sdk import ClaudeSDKClient
+
+
+# 全局连接信号量：串行化 SDK 客户端连接，避免并发初始化竞争
+# SDK 的 connect() 在并发调用时可能触发 "Control request timeout: initialize"
+_SDK_CONNECT_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def get_sdk_connect_semaphore() -> asyncio.Semaphore:
+    """获取全局 SDK 连接信号量（延迟初始化，确保在 event loop 中调用）。"""
+    global _SDK_CONNECT_SEMAPHORE
+    if _SDK_CONNECT_SEMAPHORE is None:
+        _SDK_CONNECT_SEMAPHORE = asyncio.Semaphore(1)
+    return _SDK_CONNECT_SEMAPHORE
 
 
 @dataclass

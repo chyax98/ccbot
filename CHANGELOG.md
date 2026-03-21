@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- **Worker 并发初始化超时** — 添加全局信号量串行化 SDK 客户端连接，修复多个 Worker 同时启动时因 SDK 内部资源竞争导致的 "Control request timeout: initialize" 错误。(`runtime/pool.py`, `runtime/worker_pool.py`)
 - **Prompt 注入链路收敛** — 重新整理 `preset -> project CLAUDE -> runtime metadata/reference context -> role prompt -> extra prompt` 的顺序，去掉 runtime 对宿主机 `user` 级 Claude settings 的依赖，减少 authority 混乱并提升可复现性。(`runtime/profiles.py`, `runtime/pool.py`, `templates/.claude/CLAUDE.md`, `templates/prompts/*.md`)
 - **记忆注入结构化与转义** — `MemoryStore` 现以 `reference-only` 结构化块注入长期/短期记忆，对内容做转义，并跳过默认 bootstrap 模板，避免 memory 与角色指令混写、降低 prompt injection 风险并减少无效 token。(`memory.py`)
 - **Worker prompt 绑定真实 cwd** — `WorkerPool._create_client()` 现使用解析后的实际工作目录注入 Claude SDK 与 role prompt，避免 `cwd='.'` 时 prompt、项目 settings、实际执行目录三者不一致。(`runtime/worker_pool.py`)

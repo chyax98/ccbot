@@ -19,7 +19,7 @@ from ccbot.config import AgentConfig
 from ccbot.memory import MemoryStore
 from ccbot.observability import configure_langsmith_once
 from ccbot.runtime.profiles import RuntimeRole, build_sdk_options, join_prompt_parts
-from ccbot.runtime.sdk_utils import build_stderr_capture
+from ccbot.runtime.sdk_utils import build_stderr_capture, get_sdk_connect_semaphore
 from ccbot.workspace import WorkspaceManager
 
 if TYPE_CHECKING:
@@ -246,10 +246,12 @@ class AgentPool:
         options = ClaudeAgentOptions(**kwargs)
         client = ClaudeSDKClient(options)
         self._stderr_captures[chat_id] = stderr_capture
-        try:
-            await client.connect()
-        except Exception:
-            raise
+        # 使用全局信号量串行化连接，避免 SDK 并发初始化竞争
+        async with get_sdk_connect_semaphore():
+            try:
+                await client.connect()
+            except Exception:
+                raise
         return client
 
     async def _cleanup_loop(self) -> None:
