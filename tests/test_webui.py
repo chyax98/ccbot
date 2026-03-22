@@ -53,7 +53,7 @@ def test_webui_dashboard_and_scheduler_management(tmp_path: Path) -> None:
 
 
 def test_webui_saves_config_and_env(tmp_path: Path) -> None:
-    workspace = WorkspaceManager(tmp_path)
+    WorkspaceManager(tmp_path)
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps({"agent": {}}, ensure_ascii=False),
@@ -102,7 +102,7 @@ def test_webui_saves_config_and_env(tmp_path: Path) -> None:
 
 def test_webui_api_status_standalone(tmp_path: Path) -> None:
     """独立模式下 /api/status 返回 embedded=False。"""
-    workspace = WorkspaceManager(tmp_path)
+    WorkspaceManager(tmp_path)
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps({"agent": {}}, ensure_ascii=False),
@@ -119,7 +119,7 @@ def test_webui_api_status_standalone(tmp_path: Path) -> None:
 
 def test_webui_runtime_api_requires_embedded(tmp_path: Path) -> None:
     """独立模式下运行时 API 返回 503。"""
-    workspace = WorkspaceManager(tmp_path)
+    WorkspaceManager(tmp_path)
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps({"agent": {}}, ensure_ascii=False),

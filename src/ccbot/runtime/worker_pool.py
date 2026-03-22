@@ -340,10 +340,7 @@ class WorkerPool:
         self._stderr_captures[capture_key] = stderr_capture
         # 使用全局信号量串行化连接，避免 SDK 并发初始化竞争
         async with get_sdk_connect_semaphore():
-            try:
-                await client.connect()
-            except Exception:
-                raise
+            await client.connect()
         return client
 
     async def _cleanup_loop(self) -> None:

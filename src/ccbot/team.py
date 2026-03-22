@@ -169,9 +169,7 @@ class AgentTeam:
         context_parts: list[str] = []
         worker_status = self._worker_pool.format_status(owner_id=chat_id)
         if worker_status:
-            context_parts.append(
-                "<worker_status>\n" + escape(worker_status) + "\n</worker_status>"
-            )
+            context_parts.append("<worker_status>\n" + escape(worker_status) + "\n</worker_status>")
 
         if context_parts:
             context_block = (
@@ -232,7 +230,7 @@ class AgentTeam:
                 self._run_workers_async(chat_id, prompt, dispatch, on_progress, on_worker_result),
                 name=f"worker-dispatch:{chat_id}",
             )
-            self._track_background_task(chat_id, [task.name for task in dispatch.tasks], task)
+            self._track_background_task(chat_id, [t.name for t in dispatch.tasks], task)
             return pre_text or f"已派发 {len(dispatch.tasks)} 个任务，结果将陆续返回。"
 
         result = await self._run_workers(chat_id, dispatch, on_progress)

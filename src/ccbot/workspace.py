@@ -56,28 +56,6 @@ class WorkspaceManager:
                     shutil.copy2(src, dst)
                     logger.debug("初始化: {}", rel)
 
-    def _migrate_legacy(self) -> None:
-        """迁移旧版 ~/.ccbot/ 下散落的运行时目录到 workspace/.ccbot/，完成后删除源目录。"""
-        legacy_root = Path.home() / ".ccbot"
-        for dirname in ("dedup", "tmp"):
-            src = legacy_root / dirname
-            if not src.is_dir():
-                continue
-            dst = self.runtime_dir / dirname
-            if not dst.exists():
-                try:
-                    shutil.copytree(src, dst)
-                    logger.info("迁移旧目录: {} → {}", src, dst)
-                except OSError as exc:
-                    logger.warning("迁移旧目录失败: {} → {} ({})", src, dst, exc)
-                    continue
-            # 目标已存在（迁移完成或之前已迁移），删除旧目录
-            try:
-                shutil.rmtree(src)
-                logger.info("已删除旧版目录: {}", src)
-            except OSError as exc:
-                logger.warning("删除旧版目录失败: {} ({})", src, exc)
-
     @property
     def output_dir(self) -> Path:
         """Claude 写出文件的目录，由 Channel 自动上传或展示。"""

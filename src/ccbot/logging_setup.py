@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-
-def setup_logging(config: "LoggingConfig") -> None:
-    """根据配置初始化日志系统。"""
+if TYPE_CHECKING:
     from ccbot.config import LoggingConfig
 
+
+def setup_logging(config: LoggingConfig) -> None:
+    """根据配置初始化日志系统。"""
     # 移除默认处理器
     logger.remove()
 
@@ -33,24 +35,23 @@ def setup_logging(config: "LoggingConfig") -> None:
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         if config.format == "json":
-            file_format = (
-                '{{"time": "{time:YYYY-MM-DD HH:mm:ss}", '
-                '"level": "{level}", '
-                '"name": "{name}", '
-                '"function": "{function}", '
-                '"line": {line}, '
-                '"message": "{message}"}}'
+            logger.add(
+                file_path,
+                level=level,
+                serialize=True,
+                rotation=config.max_file_size_mb * 1024 * 1024,
+                retention=f"{config.rotation_days} days",
+                compression="zip",
             )
         else:
             file_format = (
                 "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
             )
-
-        logger.add(
-            file_path,
-            level=level,
-            format=file_format,
-            rotation=config.max_file_size_mb * 1024 * 1024,
-            retention=f"{config.rotation_days} days",
-            compression="zip",
-        )
+            logger.add(
+                file_path,
+                level=level,
+                format=file_format,
+                rotation=config.max_file_size_mb * 1024 * 1024,
+                retention=f"{config.rotation_days} days",
+                compression="zip",
+            )

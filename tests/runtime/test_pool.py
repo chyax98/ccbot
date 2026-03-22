@@ -235,9 +235,7 @@ class TestAgentPool:
         assert "chat_123" in pool._stderr_captures
 
     @pytest.mark.asyncio
-    async def test_create_client_clears_claude_code_host_env(
-        self, mock_config, mock_workspace
-    ):
+    async def test_create_client_clears_claude_code_host_env(self, mock_config, mock_workspace):
         pool = AgentPool(mock_config, mock_workspace, idle_timeout=60)
 
         class DummyOptions:

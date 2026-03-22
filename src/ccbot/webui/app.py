@@ -248,7 +248,13 @@ def create_app(
         resolved = Path(path).expanduser().resolve()
         if not state.is_allowed_preview_path(resolved):
             raise HTTPException(status_code=404, detail="file not found")
-        content = resolved.read_text(encoding="utf-8")
+        file_size = resolved.stat().st_size
+        max_preview_bytes = 512 * 1024  # 512 KB
+        if file_size > max_preview_bytes:
+            content = resolved.read_text(encoding="utf-8", errors="replace")[:max_preview_bytes]
+            content += f"\n\n... (文件过大，仅显示前 {max_preview_bytes // 1024} KB)"
+        else:
+            content = resolved.read_text(encoding="utf-8")
         return templates.TemplateResponse(
             request,
             "file_preview.html",

@@ -93,7 +93,7 @@ def _format_langsmith_status(status: dict[str, object]) -> str:
     return f"enabled ({project})"
 
 
-def _setup_logging(config: "Config", verbose: bool = False) -> None:
+def _setup_logging(config: Config, verbose: bool = False) -> None:
     """初始化日志系统。"""
     from ccbot.logging_setup import setup_logging
 
@@ -144,10 +144,11 @@ def onboard(
     console.print(Panel(f"{__logo__} ccbot 配置向导", border_style="cyan"))
 
     # 检查已有配置
-    if config_path.exists():
-        if not Confirm.ask(f"配置文件 {config_path} 已存在，是否覆盖？", default=False):
-            console.print("[yellow]已取消[/yellow]")
-            return
+    if config_path.exists() and not Confirm.ask(
+        f"配置文件 {config_path} 已存在，是否覆盖？", default=False
+    ):
+        console.print("[yellow]已取消[/yellow]")
+        return
 
     # 选择使用场景
     console.print("\n[bold]请选择使用场景:[/bold]")
@@ -491,12 +492,15 @@ def run(
     asyncio.run(main())
 
 
+_DEFAULT_PID_FILE = Path.home() / ".ccbot" / "ccbot.pid"
+
+
 @app.command()
 def stop(
     pid_file: Annotated[
         Path,
         typer.Option("--pid-file", help="PID 文件路径"),
-    ] = Path.home() / ".ccbot" / "ccbot.pid",
+    ] = _DEFAULT_PID_FILE,
 ) -> None:
     """停止后台运行的 ccbot 进程。"""
     import signal
@@ -509,7 +513,7 @@ def stop(
         pid = int(pid_file.read_text().strip())
     except ValueError:
         console.print(f"[red]PID 文件格式无效: {pid_file}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     try:
         os.kill(pid, signal.SIGTERM)
@@ -520,7 +524,7 @@ def stop(
         pid_file.unlink(missing_ok=True)
     except PermissionError:
         console.print(f"[red]无权限终止进程 {pid}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
 
 @app.command()

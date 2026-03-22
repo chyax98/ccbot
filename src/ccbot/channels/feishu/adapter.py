@@ -425,7 +425,8 @@ class FeishuChannel(Channel):
         await self._fetch_bot_open_id()
 
         # 加载持久化的 dedup 数据
-        await self._dedup.load(self._dedup_dir, "feishu")
+        if self._dedup_dir is not None:
+            await self._dedup.load(self._dedup_dir, "feishu")
 
         event_handler = (
             lark.EventDispatcherHandler.builder(
@@ -493,7 +494,8 @@ class FeishuChannel(Channel):
         await self._debounce.stop()
         await self._queue.stop()
 
-        await self._dedup.persist(self._dedup_dir, "feishu")
+        if self._dedup_dir is not None:
+            await self._dedup.persist(self._dedup_dir, "feishu")
 
         if self._stopped_event:
             self._stopped_event.set()

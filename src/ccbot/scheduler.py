@@ -286,6 +286,12 @@ class SchedulerService:
         return "\n".join(lines)
 
     async def _loop(self) -> None:
+        # 启动后立即检查一次到期任务，避免延迟一个 poll_interval
+        try:
+            await self._tick()
+        except Exception as exc:
+            logger.error("Scheduler 首次轮询失败: {}", exc)
+
         while self._running:
             try:
                 await asyncio.sleep(self._poll_interval)
