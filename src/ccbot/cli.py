@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -32,6 +33,38 @@ app = typer.Typer(
 console = Console()
 
 _DEFAULT_CONFIG = Path.home() / ".ccbot" / "config.json"
+
+
+def _daemonize(pid_file: Path | None = None) -> None:
+    """将当前进程转为后台守护进程。
+
+    使用 double-fork 技术确保进程完全脱离终端。
+    """
+    # First fork
+    pid = os.fork()
+    if pid > 0:
+        sys.exit(0)
+
+    # 脱离终端
+    os.setsid()
+
+    # Second fork
+    pid = os.fork()
+    if pid > 0:
+        sys.exit(0)
+
+    # 重定向标准流
+    sys.stdout.flush()
+    sys.stderr.flush()
+    devnull = os.open(os.devnull, os.O_RDWR)
+    os.dup2(devnull, sys.stdin.fileno())
+    os.dup2(devnull, sys.stdout.fileno())
+    os.dup2(devnull, sys.stderr.fileno())
+
+    # 写入 PID 文件
+    if pid_file:
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(str(os.getpid()))
 
 
 def _augment_langsmith_metadata(
@@ -337,8 +370,22 @@ def run(
         int,
         typer.Option("--web-port", help="嵌入 Web 控制台端口（0 = 关闭）"),
     ] = 8787,
+    daemon: Annotated[
+        bool,
+        typer.Option("--daemon", "-d", help="后台运行（守护进程模式）"),
+    ] = False,
+    pid_file: Annotated[
+        Path | None,
+        typer.Option("--pid-file", help="PID 文件路径（后台模式有效）"),
+    ] = None,
 ) -> None:
     """启动机器人（Supervisor+Worker 多 Agent 模式）。"""
+    # 后台模式
+    if daemon:
+        actual_pid_file = pid_file or (config_path.parent / "ccbot.pid")
+        console.print(f"[cyan]以后台模式启动，PID 文件: {actual_pid_file}[/cyan]")
+        _daemonize(actual_pid_file)
+
     from ccbot.channels.base import IncomingMessage
     from ccbot.config import load_config
     from ccbot.scheduler import SchedulerService
@@ -442,6 +489,38 @@ def run(
             await team.stop()
 
     asyncio.run(main())
+
+
+@app.command()
+def stop(
+    pid_file: Annotated[
+        Path,
+        typer.Option("--pid-file", help="PID 文件路径"),
+    ] = Path.home() / ".ccbot" / "ccbot.pid",
+) -> None:
+    """停止后台运行的 ccbot 进程。"""
+    import signal
+
+    if not pid_file.exists():
+        console.print(f"[red]PID 文件不存在: {pid_file}[/red]")
+        raise typer.Exit(1)
+
+    try:
+        pid = int(pid_file.read_text().strip())
+    except ValueError:
+        console.print(f"[red]PID 文件格式无效: {pid_file}[/red]")
+        raise typer.Exit(1)
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+        console.print(f"[green]已发送终止信号到进程 {pid}[/green]")
+        pid_file.unlink(missing_ok=True)
+    except ProcessLookupError:
+        console.print(f"[yellow]进程 {pid} 不存在，清理 PID 文件[/yellow]")
+        pid_file.unlink(missing_ok=True)
+    except PermissionError:
+        console.print(f"[red]无权限终止进程 {pid}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()

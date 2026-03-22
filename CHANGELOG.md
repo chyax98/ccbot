@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **后台运行模式** — `ccbot run --daemon` / `-d` 支持后台守护进程模式，新增 `ccbot stop` 命令停止后台进程。(`cli.py`)
+
 ### Fixed
 
 - **Worker 并发初始化超时** — 添加全局信号量串行化 SDK 客户端连接，修复多个 Worker 同时启动时因 SDK 内部资源竞争导致的 "Control request timeout: initialize" 错误。(`runtime/pool.py`, `runtime/worker_pool.py`)
